@@ -4,6 +4,7 @@ import shelve
 import re
 import codecs
 import itertools
+import argparse
 from itertools import product
 #sys.stdin = codecs.getwriter('utf-8')(sys.stdin)
 #sys.stderr = codecs.getwriter('utf-8')(sys.stderr)
@@ -38,6 +39,7 @@ class Event(object):
         verb_key = "%s-%s" % (self.pred1.verb_raw, self.pred2.verb_raw)
         self.pred1._set_arguments(verb_key)
         self.pred2._set_arguments(verb_key)
+
     def _set_original(self):
         vkeys1 = self.pred1.get_vstr_for_keys()
         vkeys2 = self.pred2.get_vstr_for_keys()
@@ -56,8 +58,14 @@ class Event(object):
                 continue
             for val, sent in get_original_sentence(key):
                 self.orig_sentences.append(sent)
-                sys.exit()
-        def export()
+
+    def export(self):
+        event_dict = {}
+        event_dict['pred1'] = self.pred1.export()
+        event_dict['pred2'] = self.pred2.export()
+        event_dict['charStr_raw'] = self.charStr_raw
+        event_dict['orig_sentences'] = self.orig_sentences
+        return event_dict
 
 
 class Predicate(object):
@@ -114,16 +122,35 @@ class Predicate(object):
             ccstr_for_keys = temp
         return ccstr_for_keys
 
+    def export(self):
+        predicate_dict = {}
+        predicate_dict['verb_rep'] = self.verb_rep
+        predicate_dict['verb_stem'] = self.verb_stem
+        predicate_dict['args'] = self.args
+        return predicate_dict
 
-def build_event_db(file_loc, ids_file):
-    nums = []
+
+def build_event_db(db_loc, ids_file):
+    event_db = shelve.open(db_loc)
+
     for num in open(ids_file, 'r').readlines():
-        nums.append(num.rstrip())
-
+        num = num.rstrip()
+        ev = Event(int(num))
+        event_db[num] = ev.export()
     
 
 ### testing:
 if __name__ == "__main__":
-    ev = Event(108401)
-    build_event_db("./temp.db", IDS_FILE)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-d', "--store_db", action="store", dest="store_db")
+    parser.add_argument('-n', "--num", action="store", dest="num")
+    options = parser.parse_args() 
+    if options.store_db != None:
+        build_event_db(options.store_db, IDS_FILE)
+    elif options.num != None:
+        # debug mode.
+        ev = Event(options.num)
+    else:
+        print "no option specified."
+
         
