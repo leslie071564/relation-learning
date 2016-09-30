@@ -32,13 +32,14 @@ CASE_ENG_K = ['d', 'n', 'w', 'g', 'o']
 CASE_KATA_K = [u"デ", u"ニ", u"ヲ", u"ガ", u"ノ"]
 ENG_KATA_K = dict(zip(CASE_ENG_K, CASE_KATA_K))
 KATA_ENG_K = dict(zip(CASE_KATA_K, CASE_ENG_K))
+HINSI = set([u"名詞", u"動詞", u"形容詞", u"助詞", u"指示詞"])
 
 def get_mrph_set(sent):
     try:
         result = knp.parse(sent.decode('utf-8'))
     except:
         return None
-    return set([x.midasi for x in result.mrph_list()])
+    return set([(x.midasi, x.hinsi) for x in result.mrph_list()])
 
 def check_redundant_sentence(mrph_sets, new_sent):
     new_sent_mrph = get_mrph_set(new_sent)
@@ -46,7 +47,9 @@ def check_redundant_sentence(mrph_sets, new_sent):
         sys.stderr.write("knp parsing error: %s\n" % (new_sent))
         return None
     for old_sent_mrph in mrph_sets:
-        if len(old_sent_mrph ^ new_sent_mrph) <= 2:
+        diff = old_sent_mrph ^ new_sent_mrph
+        diff = [x[1] for x in diff] 
+        if len(set(diff) & HINSI) == 0:
             sys.stderr.write("redundant sentence: %s\n" % (new_sent))
             return None
     return new_sent_mrph
