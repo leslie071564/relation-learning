@@ -53,11 +53,17 @@ class Event(object):
         sys.stderr.write("key strings:\n%s\n" % ("\n".join(all_keys)))
         # get original sentences. 
         self.orig_sentences = []
+        mrph_sets = []
         for key in all_keys:
             if get_original_sentence(key.decode('utf-8')) == None:
                 continue
             for val, sent in get_original_sentence(key):
-                self.orig_sentences.append(sent)
+                # check for repeated sentences.
+                new_mrph = check_redundant_sentence(mrph_sets, sent)
+                if new_mrph !=None:
+                    self.orig_sentences.append(sent)
+                    mrph_sets.append(new_mrph)
+
 
     def export(self):
         event_dict = {}
@@ -132,8 +138,8 @@ class Predicate(object):
 
 def build_event_db(db_loc, ids_file):
     event_db = shelve.open(db_loc)
-
     for num in open(ids_file, 'r').readlines():
+        sys.stderr.write("# %s\n" % (num))
         num = num.rstrip()
         ev = Event(int(num))
         event_db[num] = ev.export()
@@ -151,6 +157,6 @@ if __name__ == "__main__":
         # debug mode.
         ev = Event(options.num)
     else:
-        print "no option specified."
+        sys.stderr.write("no option specified.\n")
 
         
