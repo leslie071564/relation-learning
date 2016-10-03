@@ -40,7 +40,8 @@ def get_skip(cmd_str):
 
 def get_title(event_id):
     ev = EVENT_DB[event_id]
-    return "%s-%s" % (ev['pred1']['verb_rep'], ev['pred2']['verb_rep'])
+    #return "%s-%s" % (ev['pred1']['verb_rep'], ev['pred2']['verb_rep'])
+    return ev['charStr']
 
 def plot(event_id, skip):
     vocabs = {}
