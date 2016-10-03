@@ -21,10 +21,20 @@ IDS_FILE = config.get('Raw', 'IDS')
 GOLD_ALIGN = shelve.open(config.get('Raw', 'GOLD'), flag='r')
 
 class Event(object):
-    def __init__(self, num):
+    attributes = ['pred1', 'pred2', 'charStr_raw', 'charStr', 'orig_sentences']
+    def __init__(self, num, event_dict=None, modify=[]):
         self.num = num
-        self._set_basic()
-        self._set_original()
+        if event_dict == None:
+            self._set_basic()
+            self._set_orig_sentences()
+        else:
+            self.pred1 = Predicate("", event_dict['pred1'])
+            self.pred2 = Predicate("", event_dict['pred2'])
+            for attr in self.attributes[2:]:
+                if attr in modify:
+                    exec("self._set_%s()" % attr)
+                else:
+                    exec("self.%s = event_dict[\'%s\']" % (attr, attr))
 
     def _set_basic(self):
         # retrieve the line of current event pair.
@@ -39,8 +49,17 @@ class Event(object):
         verb_key = "%s-%s" % (self.pred1.verb_raw, self.pred2.verb_raw)
         self.pred1._set_arguments(verb_key)
         self.pred2._set_arguments(verb_key)
+        self._set_charStr()
 
-    def _set_original(self):
+    def _set_charStr_raw(self):
+        # retrieve the line of current event pair.
+        command = "head -n %s %s | tail -n 1" % (self.num, ARG_FILE)
+        line = check_output(command, shell=True)
+        pa1_str = re.sub(r"[{{}}]", "", line.split(" ")[1])
+        pa2_str = re.sub(r"[{{}}]", "", line.split(" ")[3])
+        self.charStr_raw = "%s => %s" % (pa1_str, pa2_str)
+
+    def _set_orig_sentences(self):
         vkeys1 = self.pred1.get_vstr_for_keys()
         vkeys2 = self.pred2.get_vstr_for_keys()
         cckey1 = self.pred1.get_ccstr_for_keys()
@@ -64,6 +83,9 @@ class Event(object):
                     self.orig_sentences.append(sent)
                     mrph_sets.append(new_mrph)
 
+    def _set_charStr(self):
+        self.charStr = "%s --> %s" % (self.pred1.get_charStr(), self.pred2.get_charStr())
+
 
     def export(self):
         event_dict = {}
@@ -75,10 +97,15 @@ class Event(object):
 
 
 class Predicate(object):
-    def __init__(self, pa_str):
-        self.verb_raw = pa_str.split(":")[0]
-        self.args_raw = pa_str.split(":")[1:]
-        self._set_predicate(self.verb_raw)
+    attributes = ['verb_stem', 'verb_rep', 'args']
+    def __init__(self, pa_str, pred_dict=None):
+        if pred_dict == None:
+            self.verb_raw = pa_str.split(":")[0]
+            self.args_raw = pa_str.split(":")[1:]
+            self._set_predicate(self.verb_raw)
+        else:
+            for attr in self.attributes:
+                exec("self.%s = pred_dict[\'%s\']" % (attr, attr))
 
     def _set_predicate(self, verb_str):
         regex = re.compile(verb_pattern)
@@ -127,6 +154,14 @@ class Predicate(object):
                 temp.extend(map(lambda x: "%s|%s|%s" % (noun, ENG_KATA_K[case], x), ccstr_for_keys))
             ccstr_for_keys = temp
         return ccstr_for_keys
+    
+    def get_charStr(self):
+        charStr = ""
+        for case in self.args.keys():
+            arg0 = self.args[case][0]
+            charStr += remove_hira(arg0) + ENG_HIRA[case]
+        charStr += remove_hira(self.verb_rep, keep_plus=True)
+        return charStr
 
     def export(self):
         predicate_dict = {}
@@ -144,15 +179,29 @@ def build_event_db(db_loc, ids_file):
         ev = Event(int(num))
         event_db[num] = ev.export()
     
+# now possible: (Event)charStr/charStr_raw/gold
+### TODO: (Predicate) negation/voice/verb_raw (Event)original 
+def update(update_list, event_db="/zinnia/huang/EventKnowledge/data/event.db"):
+    EVENT_DB = shelve.open(event_db)
+    for num in open(IDS_FILE, 'r').readlines():
+        num = num.rstrip()
+        sys.stderr.write("now updating ...%s\n" % num)
+        ev = Event(num, EVENT_DB[num], modify=update_list)
+        EVENT_DB[num] = ev.export()
+        sys.stderr.write("done\n")
 
 ### testing:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', "--store_db", action="store", dest="store_db")
     parser.add_argument('-n', "--num", action="store", dest="num")
+    parser.add_argument('-u', "--update", action="store", dest="update")
     options = parser.parse_args() 
+
     if options.store_db != None:
         build_event_db(options.store_db, IDS_FILE)
+    elif options.update != None:
+        update(options.update.split('/'))
     elif options.num != None:
         # debug mode.
         ev = Event(options.num)
