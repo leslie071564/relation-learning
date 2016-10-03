@@ -12,6 +12,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import mpld3
 from sklearn.manifold import TSNE
+EVENT_DB = shelve.open("/zinnia/huang/EventKnowledge/data/event.db", flag='r')
 COUNT_DB = shelve.open("/zinnia/huang/EventKnowledge/data/NP_Statistics.db", flag='r')
 #N = len(COUNT_DB.keys()) - 1
 N = 819
@@ -36,6 +37,10 @@ def tf_idf(arg, event_id):
 def get_skip(cmd_str):
     cmd_str = cmd_str.decode('utf-8')
     return cmd_str.split("_")
+
+def get_title(event_id):
+    ev = EVENT_DB[event_id]
+    return "%s-%s" % (ev['pred1']['verb_rep'], ev['pred2']['verb_rep'])
 
 def plot(event_id, skip):
     vocabs = {}
@@ -63,17 +68,22 @@ def plot(event_id, skip):
     fig = plt.figure()
     ax = fig.add_subplot(111)
     SCATTER = ax.scatter(Y[:,0], Y[:,1], s=map(lambda x:x*ENLARGE,  vocabs.values()))
-    tooltip = mpld3.plugins.PointLabelTooltip(SCATTER, labels=map(lambda x: "%s:%s" % (x[0], x[1]), vocabs.items()))
+    tooltip = mpld3.plugins.PointLabelTooltip(SCATTER, labels=map(lambda x: "%s:%.3f" % (x[0], x[1]), vocabs.items()))
     mpld3.plugins.connect(fig, tooltip)
     html_page = "/home/huang/public_html/relation/%s.html" % (event_id)
-    mpld3.save_html(fig, html_page)
+    html_page = open(html_page, 'w')
+    html_page.write("<h1>%s</h1>\n" % (get_title(event_id)))
+    html_page.write(mpld3.fig_to_html(fig))
+    html_page.close()
+
+    #mpld3.save_html(fig, html_page)
     
 
 if __name__ == "__main__":
     # parse cmd arguments.
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', "--event_id", action="store", dest="event_id")
-    parser.add_argument('-s', "--skip_words", action="store", dest="skip_words")
+    parser.add_argument('-s', "--skip_words", action="store", dest="skip_words", default="")
     options = parser.parse_args() 
 
     skip = get_skip(options.skip_words)
