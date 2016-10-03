@@ -66,7 +66,7 @@ class Event(object):
         else:
             self.gold = None
 
-    def _set_orig_sentences(self):
+    def _set_orig_sentences(self, remove_redundant=False):
         vkeys1 = self.pred1.get_vstr_for_keys()
         vkeys2 = self.pred2.get_vstr_for_keys()
         cckey1 = self.pred1.get_ccstr_for_keys()
@@ -79,16 +79,14 @@ class Event(object):
         sys.stderr.write("key strings:\n%s\n" % ("\n".join(all_keys)))
         # get original sentences. 
         self.orig_sentences = []
-        mrph_sets = []
         for key in all_keys:
             if get_original_sentence(key.decode('utf-8')) == None:
                 continue
             for val, sent in get_original_sentence(key):
                 # check for repeated sentences.
-                new_mrph = check_redundant_sentence(mrph_sets, sent)
-                if new_mrph !=None:
-                    self.orig_sentences.append(sent)
-                    mrph_sets.append(new_mrph)
+                self.orig_sentences.append(sent)
+        if remove_redundant:
+            self.orig_sentences = remove_redundant_sentence(self.orig_sentences)
 
     def _set_charStr(self):
         self.charStr = "%s --> %s" % (self.pred1.get_charStr(), self.pred2.get_charStr())

@@ -54,6 +54,15 @@ def check_redundant_sentence(mrph_sets, new_sent):
             return None
     return new_sent_mrph
 
+def remove_redundant_sentence(orig_sentences):
+    mrph_sets = []
+    trimmed_sentences = []
+    for sent in orig_sentences:
+        new_mrph = check_redundant_sentence(mrph_sets, sent) 
+        if new_mrph != None:
+            trimmed_sentences.append(sent)
+            mrph_sets.append(new_mrph)
+    return trimmed_sentences
 
 def get_pa_from_sid(sid):
     SID2PAdb = CDB_Reader(SID2PA_KEYMAP)
@@ -113,4 +122,5 @@ def replace_word(key, class_num):
             nounList = map(lambda x: x.split('#')[0], nounList)
             rtn.extend(nounList)
     return rtn
+
 
