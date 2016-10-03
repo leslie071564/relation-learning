@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
+import re
+from pyknp import Juman
+juman = Juman(command="/home/huang/usr/bin/juman", rcfile="/home/huang/usr/etc/jumanrc")
 CASE_ENG = ['g', 'w', 'n', 'd']
 CASE_KATA = [u"ガ格", u"ヲ格", u"ニ格", u"デ格"]
 CASE_HIRA = [u"が", u"を", u"に", u"で"]
 verb_pattern = r"[12]([vjn])([APCKML])(.+)$"
 noun_pattern = r"([12])([gwnod])(\d*)(.+)$"
-from pyknp import Juman
-juman = Juman(command="/home/huang/usr/bin/juman", rcfile="/home/huang/usr/etc/jumanrc")
 
 def get_verb_form(vStr, voice):
     sahen = isSahen(vStr)
@@ -26,3 +27,8 @@ def isSahen(vStr):
         return True
     return False
 
+def remove_hira(rep_str, split_char=['+']):
+    # ex: 応募/おうぼ+箱/はこ --> 応募箱
+    readable_strs = re.split(r'[%s]+' % ("".join(split_char)), rep_str)
+    readable_strs = map(lambda x: x.split('/')[0], readable_strs)
+    return "".join(readable_strs)
