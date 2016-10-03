@@ -92,6 +92,7 @@ class Event(object):
         event_dict['pred1'] = self.pred1.export()
         event_dict['pred2'] = self.pred2.export()
         event_dict['charStr_raw'] = self.charStr_raw
+        event_dict['charStr'] = self.charStr
         event_dict['orig_sentences'] = self.orig_sentences
         return event_dict
 
@@ -159,7 +160,7 @@ class Predicate(object):
         charStr = ""
         for case in self.args.keys():
             arg0 = self.args[case][0]
-            charStr += remove_hira(arg0) + ENG_HIRA[case]
+            charStr += remove_hira(arg0) + ENG_HIRA[case].encode('utf-8')
         charStr += remove_hira(self.verb_rep, keep_plus=True)
         return charStr
 
