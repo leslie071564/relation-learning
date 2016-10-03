@@ -61,7 +61,10 @@ class Event(object):
         self.charStr_raw = "%s => %s" % (pa1_str, pa2_str)
 
     def _set_gold(self):
-        self.gold = process_gold(GOLD_ALIGN[self.num])
+        if self.num in GOLD_ALIGN.keys():
+            self.gold = process_gold(GOLD_ALIGN[self.num])
+        else:
+            self.gold = None
 
     def _set_orig_sentences(self):
         vkeys1 = self.pred1.get_vstr_for_keys()
@@ -213,5 +216,4 @@ if __name__ == "__main__":
         ev = Event(options.num)
     else:
         sys.stderr.write("no option specified.\n")
-
         
