@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 import re
 from pyknp import Juman
+import itertools
+from itertools import product
 juman = Juman(command="/home/huang/usr/bin/juman", rcfile="/home/huang/usr/etc/jumanrc")
 CASE_ENG = ['g', 'w', 'n', 'd']
 CASE_KATA = [u"ガ格", u"ヲ格", u"ニ格", u"デ格"]
@@ -36,3 +38,24 @@ def remove_hira(rep_str, split_char=['+'], keep_plus=False):
         return '+'.join(readable_strs)
     else:
         return "".join(readable_strs)
+
+def process_gold(raw_gold):
+    if raw_gold == ['null']:
+        return []
+    raw_gold = map(lambda x: x.replace("\'",""), raw_gold)
+    raw_gold = map(lambda x: x.replace("g2","g"), raw_gold)
+    
+    trim_gold = []
+    for g in raw_gold:
+        if '/' in g:
+            c1, c2 = g.split('-')
+            all_possibility = product(c1.split('/'), c2.split('/')) 
+            all_possibility = map(lambda x:"%s-%s" % (x[0], x[1]), all_possibility)
+            trim_gold += all_possibility
+        else:
+            trim_gold.append(g)
+    trim_gold = list(set(trim_gold))
+    trim_gold = filter(lambda x: 'p' not in x, trim_gold)
+    return trim_gold
+
+

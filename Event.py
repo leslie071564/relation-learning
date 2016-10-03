@@ -21,7 +21,7 @@ IDS_FILE = config.get('Raw', 'IDS')
 GOLD_ALIGN = shelve.open(config.get('Raw', 'GOLD'), flag='r')
 
 class Event(object):
-    attributes = ['pred1', 'pred2', 'charStr_raw', 'charStr', 'orig_sentences']
+    attributes = ['pred1', 'pred2', 'charStr_raw', 'charStr', 'orig_sentences', 'gold']
     def __init__(self, num, event_dict=None, modify=[]):
         self.num = num
         if event_dict == None:
@@ -50,6 +50,7 @@ class Event(object):
         self.pred1._set_arguments(verb_key)
         self.pred2._set_arguments(verb_key)
         self._set_charStr()
+        self._set_gold()
 
     def _set_charStr_raw(self):
         # retrieve the line of current event pair.
@@ -58,6 +59,9 @@ class Event(object):
         pa1_str = re.sub(r"[{{}}]", "", line.split(" ")[1])
         pa2_str = re.sub(r"[{{}}]", "", line.split(" ")[3])
         self.charStr_raw = "%s => %s" % (pa1_str, pa2_str)
+
+    def _set_gold(self):
+        self.gold = process_gold(GOLD_ALIGN[self.num])
 
     def _set_orig_sentences(self):
         vkeys1 = self.pred1.get_vstr_for_keys()
@@ -94,6 +98,7 @@ class Event(object):
         event_dict['charStr_raw'] = self.charStr_raw
         event_dict['charStr'] = self.charStr
         event_dict['orig_sentences'] = self.orig_sentences
+        event_dict['gold'] = self.gold
         return event_dict
 
 
