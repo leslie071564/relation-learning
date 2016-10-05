@@ -79,14 +79,29 @@ class Event(object):
         sys.stderr.write("key strings:\n%s\n" % ("\n".join(all_keys)))
         # get original sentences. 
         self.orig_sentences = []
+        self.arg_count = defaultdict(lambda: defaultdict(int))
         for key in all_keys:
             if get_original_sentence(key.decode('utf-8')) == None:
                 continue
-            for val, sent in get_original_sentence(key):
-                # check for repeated sentences.
+            for parsed_sent, sent in get_original_sentence(key):
                 self.orig_sentences.append(sent)
+                self._update_arg_count(parsed_sent)
+        # check for repeated sentences.
         if remove_redundant:
             self.orig_sentences = remove_redundant_sentence(self.orig_sentences)
+
+    def _update_arg_count(self, parsed_sent):
+        PAS = parsed_sent.split(" - ")
+        print PAS[0]
+        # not working: PAS_components = map(str.split(" "), PAS)    
+        PAS_components = map(lambda x: x.split(" "), PAS)
+        for pred_index, pa_components in enumerate(PAS_components):
+            for arg, case in zip(pa_components[0::2], pa_components[1::2]):
+                if case not in KATA_ENG.keys():
+                    continue
+                arg = "".join(2)
+                self.arg_count["%s%s" % (KATA_ENG[case.decode('utf-8')], pred_index+1)][arg] += 1
+
 
     def _set_charStr(self):
         self.charStr = "%s --> %s" % (self.pred1.get_charStr(), self.pred2.get_charStr())
@@ -199,6 +214,15 @@ def update(update_list, event_db="/zinnia/huang/EventKnowledge/data/event.db"):
 
 ### testing:
 if __name__ == "__main__":
+    #ev = Event("104401", EVENT_DB["104401"], modify=['orig_sentences'])
+    ev = Event("104401")
+    print "total sent.s: %s" % (len(ev.orig_sentences))
+    for case, arg_dict in ev.arg_count.items():
+        print case
+        for arg, count in arg_dict.items():
+            print arg, count
+    sys.exit()
+
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', "--store_db", action="store", dest="store_db")
     parser.add_argument('-n', "--num", action="store", dest="num")
