@@ -21,7 +21,7 @@ IDS_FILE = config.get('Raw', 'IDS')
 GOLD_ALIGN = shelve.open(config.get('Raw', 'GOLD'), flag='r')
 
 class Event(object):
-    attributes = ['pred1', 'pred2', 'charStr_raw', 'charStr', 'orig_sentences', 'gold']
+    attributes = ['pred1', 'pred2', 'charStr_raw', 'charStr', 'orig_sentences', 'gold', 'arg_count']
     def __init__(self, num, event_dict=None, modify=[]):
         self.num = num
         if event_dict == None:
@@ -87,19 +87,19 @@ class Event(object):
                 self.orig_sentences.append(sent)
                 self._update_arg_count(parsed_sent)
         # check for repeated sentences.
+        self.arg_count = dict(self.arg_count)
         if remove_redundant:
             self.orig_sentences = remove_redundant_sentence(self.orig_sentences)
 
     def _update_arg_count(self, parsed_sent):
         PAS = parsed_sent.split(" - ")
-        print PAS[0]
         # not working: PAS_components = map(str.split(" "), PAS)    
         PAS_components = map(lambda x: x.split(" "), PAS)
         for pred_index, pa_components in enumerate(PAS_components):
             for arg, case in zip(pa_components[0::2], pa_components[1::2]):
                 if case not in KATA_ENG.keys():
                     continue
-                arg = "".join(2)
+                arg = "+".join(map(lambda x: x.split('/')[0], arg.split('+')))
                 self.arg_count["%s%s" % (KATA_ENG[case.decode('utf-8')], pred_index+1)][arg] += 1
 
 
@@ -111,15 +111,13 @@ class Event(object):
         event_dict = {}
         event_dict['pred1'] = self.pred1.export()
         event_dict['pred2'] = self.pred2.export()
-        event_dict['charStr_raw'] = self.charStr_raw
-        event_dict['charStr'] = self.charStr
-        event_dict['orig_sentences'] = self.orig_sentences
-        event_dict['gold'] = self.gold
+        for attr in self.attributes[2:]:
+            exec("event_dict[\'%s\'] = self.%s" % (attr, attr))
         return event_dict
 
 
 class Predicate(object):
-    attributes = ['verb_stem', 'verb_rep', 'args']
+    attributes = ['verb_stem', 'verb_rep', 'args', 'negation', 'voice']
     def __init__(self, pa_str, pred_dict=None):
         if pred_dict == None:
             self.verb_raw = pa_str.split(":")[0]
@@ -187,9 +185,8 @@ class Predicate(object):
 
     def export(self):
         predicate_dict = {}
-        predicate_dict['verb_rep'] = self.verb_rep
-        predicate_dict['verb_stem'] = self.verb_stem
-        predicate_dict['args'] = self.args
+        for attr in self.attributes:
+            exec("predicate_dict[\'%s\'] = self.%s" % (attr, attr))
         return predicate_dict
 
 
@@ -214,15 +211,19 @@ def update(update_list, event_db="/zinnia/huang/EventKnowledge/data/event.db"):
 
 ### testing:
 if __name__ == "__main__":
-    #ev = Event("104401", EVENT_DB["104401"], modify=['orig_sentences'])
+    '''
+    ev = Event("104401", EVENT_DB["104401"], modify=['orig_sentences'])
     ev = Event("104401")
+    ev_d = ev.export() 
+    print ev_d.keys()
+    print ev_d['pred1'].keys()
     print "total sent.s: %s" % (len(ev.orig_sentences))
     for case, arg_dict in ev.arg_count.items():
         print case
         for arg, count in arg_dict.items():
             print arg, count
     sys.exit()
-
+    '''
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', "--store_db", action="store", dest="store_db")
     parser.add_argument('-n', "--num", action="store", dest="num")
