@@ -5,11 +5,30 @@ import itertools
 from itertools import product
 juman = Juman(command="/home/huang/usr/bin/juman", rcfile="/home/huang/usr/etc/jumanrc")
 CASE_ENG = ['g', 'w', 'n', 'd']
-CASE_KATA = [u"ガ格", u"ヲ格", u"ニ格", u"デ格"]
+CASE_KATA = [u"ガ", u"ヲ", u"ニ", u"デ"]
+#CASE_KATA = [u"ガ格", u"ヲ格", u"ニ格", u"デ格"]
 CASE_HIRA = [u"が", u"を", u"に", u"で"]
 ENG_HIRA = dict(zip(CASE_ENG, CASE_HIRA))
+KATA_ENG = dict(zip(CASE_KATA, CASE_ENG))
 verb_pattern = r"[12]([vjn])([APCKML])(.+)$"
 noun_pattern = r"([12])([gwnod])(\d*)(.+)$"
+####
+from itertools import product, combinations, permutations
+AL = list(product(CASE_ENG, CASE_ENG)) 
+AL = map(lambda x:"%s-%s" % (x[0], x[1]), AL)
+ALL_ALIGN = list(combinations(AL, 1)) + list(combinations(AL, 2)) + list(combinations(AL, 3)) + list(combinations(AL, 4))
+ALL_ALIGN = map(lambda x: list(x), ALL_ALIGN)
+ALL_ALIGN.append([])
+ALL_ALIGN2 = []
+for i in [1,2,3,4]:
+    for p1 in combinations(CASE_ENG, i):
+        for p2 in permutations(CASE_ENG, i):
+             align = ["%s-%s" % (p1[x], p2[x]) for x in range(i)]
+             if align not in ALL_ALIGN2:
+                 ALL_ALIGN2.append(align)
+ALL_ALIGN2.append([])
+####
+
 
 def get_verb_form(vStr, voice):
     sahen = isSahen(vStr)
