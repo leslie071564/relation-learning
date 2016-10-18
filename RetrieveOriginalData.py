@@ -6,6 +6,8 @@ sys.stdout = codecs.getwriter('utf-8')(sys.stdout)
 import re
 import os
 import cdb
+import itertools
+from Event import Event
 from pyknp import KNP
 knp = KNP()
 from CDB_Reader import *
@@ -122,5 +124,4 @@ def replace_word(key, class_num):
             nounList = map(lambda x: x.split('#')[0], nounList)
             rtn.extend(nounList)
     return rtn
-
 

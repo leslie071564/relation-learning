@@ -9,6 +9,7 @@ CASE_KATA = [u"ガ", u"ヲ", u"ニ", u"デ"]
 #CASE_KATA = [u"ガ格", u"ヲ格", u"ニ格", u"デ格"]
 CASE_HIRA = [u"が", u"を", u"に", u"で"]
 ENG_HIRA = dict(zip(CASE_ENG, CASE_HIRA))
+ENG_KATA = dict(zip(CASE_ENG, CASE_KATA))
 KATA_ENG = dict(zip(CASE_KATA, CASE_ENG))
 verb_pattern = r"[12]([vjn])([APCKML])(.+)$"
 noun_pattern = r"([12])([gwnod])(\d*)(.+)$"
@@ -49,7 +50,7 @@ def isSahen(vStr):
         return True
     return False
 
-def remove_hira(rep_str, split_char=['+'], keep_plus=False):
+def remove_hira(rep_str, split_char=['+'], keep_plus=True):
     # ex: 応募/おうぼ+箱/はこ --> 応募箱
     readable_strs = re.split(r'[%s]+' % ("".join(split_char)), rep_str)
     readable_strs = map(lambda x: x.split('/')[0], readable_strs)
@@ -57,6 +58,32 @@ def remove_hira(rep_str, split_char=['+'], keep_plus=False):
         return '+'.join(readable_strs)
     else:
         return "".join(readable_strs)
+
+import sys
+query_dict = {u"う":u"わ", u"く":u"か", u"す":u"さ",u"る":u"ら",u"む":u"ま", u"ぶ":u"ば"}
+def get_verb_query(verb_rep):
+    # ex: 出荷+する+れる --> 出荷される
+    verb_pieces = verb_rep.split('+')
+    if verb_pieces[-1] in [u"する", u"なる"]:
+        if verb_pieces[-2][-1] == u"だ":
+            verb_pieces[-2] = verb_pieces[-2][:-1] + u"に"
+            return "".join(verb_pieces)
+        elif verb_pieces[-2].endswith(u"い"):
+            verb_pieces[-2] = verb_pieces[-2][:-1] + u"く"
+            return "".join(verb_pieces)
+        else:
+            sys.stderr.write("cannot convert %s-%s\n" % (verb_rep, verb_pieces[-2][-1]))
+            return None
+
+    if verb_pieces[-1] in [u"せる", u"れる"]:
+        if verb_pieces[-2] == u"する":
+            verb_pieces[-2] = u"さ"
+            return "".join(verb_pieces)
+
+        verb_pieces[-2] = verb_pieces[-2][:-1] + query_dict[verb_pieces[-2][-1].decode('utf-8')]
+        return "".join(verb_pieces)
+    return "".join(verb_pieces)
+
 
 def process_gold(raw_gold):
     if raw_gold == ['null']:

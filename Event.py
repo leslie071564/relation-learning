@@ -3,45 +3,52 @@ import sys
 import shelve
 import re
 import codecs
-import itertools
-import argparse
-from itertools import product
+import os
 #sys.stdin = codecs.getwriter('utf-8')(sys.stdin)
 #sys.stderr = codecs.getwriter('utf-8')(sys.stderr)
 #sys.stdout = codecs.getwriter('utf-8')(sys.stdout)
+import itertools
+import argparse
+from itertools import product
 from subprocess import check_output
 from utils import *
 sys.path.append("../nnAlignLearn")
 from RetrieveOriginalData import *
+from Original_sentences_analysis import * 
 import ConfigParser
 config = ConfigParser.RawConfigParser()
 config.read('./data_location.ini')
 ARG_FILE = config.get('Raw', 'ARG_FILE')
 IDS_FILE = config.get('Raw', 'IDS')
 GOLD_ALIGN = shelve.open(config.get('Raw', 'GOLD'), flag='r')
+ORIG_TEXT_DIR = config.get('Original', 'ORIG_TEXT_DIR')
 
 class Event(object):
-    attributes = ['pred1', 'pred2', 'charStr_raw', 'charStr', 'orig_sentences', 'gold', 'arg_count']
-    def __init__(self, num, event_dict=None, modify=[]):
+    #attributes = ['pred1', 'pred2', 'charStr_raw', 'charStr', 'gold', 'impossible_align', 'cf-num', 'context_word', 'arg_count']
+    attributes = ['pred1', 'pred2', 'charStr_raw', 'charStr', 'gold', 'impossible_align', 'arg_count', 'context_word']
+    def __init__(self, num, event_dict=None, modify=[], neglect=[]):
+        # event_dict: dictionary from which the event instance is build.
+        # modify: attribute(s) to be updated.
+        # neglect: atttribute(s) not to be set nor modified. 
         self.num = num
+        self.neglect = neglect
         if event_dict == None:
-            self._set_basic()
-            self._set_orig_sentences()
+            # build instance from scratch.
+            self._set_all()
         else:
+            # build instance from existing dictionary.
             self.pred1 = Predicate("", event_dict['pred1'])
             self.pred2 = Predicate("", event_dict['pred2'])
             for attr in self.attributes[2:]:
+                if attr in neglect:
+                    continue
                 if attr in modify:
                     exec("self._set_%s()" % attr)
                 else:
-                    exec("self.%s = event_dict[\'%s\']" % (attr, attr))
+                    setattr(self, attr, event_dict[attr])
 
-    def _set_basic(self):
-        # retrieve the line of current event pair.
-        command = "head -n %s %s | tail -n 1" % (self.num, ARG_FILE)
-        line = check_output(command, shell=True)
-        pa1_str = re.sub(r"[{{}}]", "", line.split(" ")[1])
-        pa2_str = re.sub(r"[{{}}]", "", line.split(" ")[3])
+    def _set_all(self):
+        pa1_str, pa2_str = self._retrieve_raw_event()
         self.charStr_raw = "%s => %s" % (pa1_str, pa2_str)
         # set predicates and arguments.
         self.pred1 = Predicate(pa1_str)
@@ -49,16 +56,27 @@ class Event(object):
         verb_key = "%s-%s" % (self.pred1.verb_raw, self.pred2.verb_raw)
         self.pred1._set_arguments(verb_key)
         self.pred2._set_arguments(verb_key)
+
         self._set_charStr()
         self._set_gold()
+        self._set_impossible_align()
+        self._set_arg_count()
+        self._set_context_word()
 
-    def _set_charStr_raw(self):
+    def _retrieve_raw_event(self):
         # retrieve the line of current event pair.
         command = "head -n %s %s | tail -n 1" % (self.num, ARG_FILE)
         line = check_output(command, shell=True)
         pa1_str = re.sub(r"[{{}}]", "", line.split(" ")[1])
         pa2_str = re.sub(r"[{{}}]", "", line.split(" ")[3])
+        return pa1_str, pa2_str
+
+    def _set_charStr_raw(self):
+        pa1_str, pa2_str = self._retrieve_raw_event()
         self.charStr_raw = "%s => %s" % (pa1_str, pa2_str)
+
+    def _set_charStr(self):
+        self.charStr = "%s --> %s" % (self.pred1.get_charStr(), self.pred2.get_charStr())
 
     def _set_gold(self):
         if self.num in GOLD_ALIGN.keys():
@@ -66,7 +84,18 @@ class Event(object):
         else:
             self.gold = None
 
-    def _set_orig_sentences(self, remove_redundant=False):
+    def _set_impossible_align(self):
+        given_args1 = self.pred1.args
+        given_args2 = self.pred2.args
+        self.impossible_align = []
+        for case1, case2 in product(given_args1.keys(), given_args2.keys()):
+            if set(given_args1[case1]) & set(given_args2[case2]):
+                continue
+            self.impossible_align.append("%s-%s" % (case1, case2))
+
+    def _set_arg_count(self, remove_redundant=False, print_sent=""):
+        if print_sent:
+            PRINT_TO_FILE = open(print_sent, 'w')
         vkeys1 = self.pred1.get_vstr_for_keys()
         vkeys2 = self.pred2.get_vstr_for_keys()
         cckey1 = self.pred1.get_ccstr_for_keys()
@@ -76,15 +105,19 @@ class Event(object):
         for i in itertools.product(cckey1, vkeys1, cckey2, vkeys2):
             full_key = "%s%s-%s%s" % (i[0], i[1], i[2], i[3])
             all_keys.append(full_key)
-        sys.stderr.write("key strings:\n%s\n" % ("\n".join(all_keys)))
+        #sys.stderr.write("key strings:\n%s\n" % ("\n".join(all_keys)))
+        sys.stderr.write("key strings:\n")
         # get original sentences. 
-        self.orig_sentences = []
         self.arg_count = defaultdict(lambda: defaultdict(int))
         for key in all_keys:
             if get_original_sentence(key.decode('utf-8')) == None:
+                sys.stderr.write("%s 0\n" % key)
                 continue
-            for parsed_sent, sent in get_original_sentence(key):
-                self.orig_sentences.append(sent)
+            original_sentence_of_key = get_original_sentence(key)
+            sys.stderr.write("%s %d\n" % (key, len(original_sentence_of_key)))
+            for parsed_sent, sent in original_sentence_of_key:
+                if print_sent:
+                    PRINT_TO_FILE.write(sent+'\n')
                 self._update_arg_count(parsed_sent)
         # check for repeated sentences.
         self.arg_count = dict(self.arg_count)
@@ -102,9 +135,70 @@ class Event(object):
                 arg = "+".join(map(lambda x: x.split('/')[0], arg.split('+')))
                 self.arg_count["%s%s" % (KATA_ENG[case.decode('utf-8')], pred_index+1)][arg] += 1
 
+    def print_orig_sentences(self, write_to_file):
+        self._set_arg_count(print_sent=write_to_file)
 
-    def _set_charStr(self):
-        self.charStr = "%s --> %s" % (self.pred1.get_charStr(), self.pred2.get_charStr())
+    def _set_context_word(self):
+        skip = [u"こと"] + sum(self.pred1.args.values(), []) + sum(self.pred2.args.values(), [])
+        skip = map(remove_hira, skip)
+        raw_context_word = get_context_words(self.num)
+        self.context_word = {k : v for k, v in raw_context_word.items() if k not in skip}
+
+    ### REMOVE
+    def _print_task(self, pred):
+        # take a predicate object as input.
+        verb = pred.verb_rep
+        # TODO: deal with causal,... predicates.
+        query = "%s＊" % get_verb_query(remove_hira(verb, keep_plus=True).decode('utf-8'))
+        given_cases = pred.args.keys()
+        for case in given_cases:
+            query = "%s%s→%s" % (remove_hira(pred.args[case][0]), ENG_HIRA[case], query)
+        queries = {}
+        for case in CASE_ENG:
+            if case in given_cases:
+                continue
+            queries[case] = "%s%s→%s" % (u"〜物", ENG_HIRA[case], query)
+        return queries
+
+    ### REMOVE
+    def print_task(self):
+        # TODO: modify hard coding path.
+        base_string = "/home/arseny/work/launch/cline.sh %s --num 1000 --format knp > /zinnia/huang/EventKnowledge/data/original_sentences/%s && echo %s"
+        for case, query in self._print_task(self.pred1).items():
+            file_name = "%s_%s1.txt" % (self.num, case)
+            print base_string % (query, file_name, "finished: %s" % file_name) 
+        for case, query in self._print_task(self.pred2).items():
+            file_name = "%s_%s2.txt" % (self.num, case)
+            print base_string % (query, file_name, "finished: %s" % file_name) 
+
+    ### REMOVE
+    # TODO: combine with above and remove.
+        
+    def _set_single_arg_seperate(self, vkeys, cckey):
+        all_keys = []
+        for k in itertools.product(cckey, vkeys):
+            full_key = "%s%s" % (k[0], k[1])
+            all_keys.append(full_key)
+        #sys.stderr.write("key strings:\n%s\n" % ("\n".join(all_keys)))
+        for key in all_keys:
+            all_sentences = get_original_sentence(key.decode('utf-8'))
+            if all_sentences == None:
+                print key
+                continue
+            for parsed_sent, sent in all_sentences:
+                print sent
+                print parsed_sent
+                sys.exit()
+
+    def _set_arg_seperate(self):
+        self.arg_seperate = {}
+        vkeys1 = self.pred1.get_vstr_for_keys()
+        cckey1 = self.pred1.get_ccstr_for_keys()
+        self._set_single_arg_seperate(vkeys1, cckey1)
+        vkeys2 = self.pred2.get_vstr_for_keys()
+        cckey2 = self.pred2.get_ccstr_for_keys()
+        #self._set_single_arg_seperate(vkeys2, cckey2)
+
 
 
     def export(self):
@@ -112,10 +206,12 @@ class Event(object):
         event_dict['pred1'] = self.pred1.export()
         event_dict['pred2'] = self.pred2.export()
         for attr in self.attributes[2:]:
-            exec("event_dict[\'%s\'] = self.%s" % (attr, attr))
+            if attr in self.neglect:
+                continue
+            event_dict[attr] = getattr(self, attr)
         return event_dict
 
-
+    
 class Predicate(object):
     attributes = ['verb_stem', 'verb_rep', 'args', 'negation', 'voice']
     def __init__(self, pa_str, pred_dict=None):
@@ -199,7 +295,7 @@ def build_event_db(db_loc, ids_file):
         event_db[num] = ev.export()
     
 # now possible: (Event)charStr/charStr_raw/gold
-### TODO: (Predicate) negation/voice/verb_raw (Event)original 
+### TODO: (Predicate) negation/voice/verb_raw 
 def update(update_list, event_db="/zinnia/huang/EventKnowledge/data/event.db"):
     EVENT_DB = shelve.open(event_db)
     for num in open(IDS_FILE, 'r').readlines():
@@ -208,22 +304,39 @@ def update(update_list, event_db="/zinnia/huang/EventKnowledge/data/event.db"):
         ev = Event(num, EVENT_DB[num], modify=update_list)
         EVENT_DB[num] = ev.export()
         sys.stderr.write("done\n")
+# REMOVE or REWRITE
+def print_tasks():
+    event_db = "/zinnia/huang/EventKnowledge/data/event.db"
+    EVENT_DB = shelve.open(event_db)
+    for num in open(IDS_FILE, 'r').readlines():
+        num = num.rstrip()
+        ev = Event(num, EVENT_DB[num])
+        #ev.print_task()
+        ev.print_processed_task()
+
+def print_ev_orig_sentences(orig_dir=ORIG_TEXT_DIR, ids=IDS_FILE):
+    nums = []
+    if type(ids) is list:
+        nums = ids
+    elif type(ids) is str:
+        if not os.path.isfile(ids):
+            sys.stderr.write("ids-file not exist!\n")
+            return None
+        nums = map(str.rstrip, open(ids, 'r').readlines())
+    else:
+        sys.stderr.write("not valid ids-file/list!\n")
+        return None
+
+    for num in nums:
+        orig_file = "%s/%s.txt" % (orig_dir, num)
+        ev = Event(num)
+        ev.print_orig_sentences(orig_file)
+
 
 ### testing:
 if __name__ == "__main__":
-    '''
-    ev = Event("104401", EVENT_DB["104401"], modify=['orig_sentences'])
-    ev = Event("104401")
-    ev_d = ev.export() 
-    print ev_d.keys()
-    print ev_d['pred1'].keys()
-    print "total sent.s: %s" % (len(ev.orig_sentences))
-    for case, arg_dict in ev.arg_count.items():
-        print case
-        for arg, count in arg_dict.items():
-            print arg, count
-    sys.exit()
-    '''
+    #print_ev_orig_sentences()
+    #sys.exit()
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', "--store_db", action="store", dest="store_db")
     parser.add_argument('-n', "--num", action="store", dest="num")
@@ -237,6 +350,8 @@ if __name__ == "__main__":
     elif options.num != None:
         # debug mode.
         ev = Event(options.num)
+        for k,v in ev.context_word.items():
+            print k, v
     else:
         sys.stderr.write("no option specified.\n")
         
