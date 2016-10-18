@@ -7,7 +7,6 @@ import re
 import os
 import cdb
 import itertools
-from Event import Event
 from pyknp import KNP
 knp = KNP()
 from CDB_Reader import *
@@ -75,16 +74,14 @@ def get_pa_from_sid(sid):
         PAstr_payload = PAstr.split(" | ")[0]
         return PAstr_payload
 
-def get_orig_sentence(sid):
+def get_sentence_by_sid(sid):
     sid = sid.split('%')[0]
     sub_dir = sid.split('-')[0]
     sub_dir2 = sid.split('-')[1][:4]
     sub_dir3 = sid.split('-')[1][:6]
     file_loc = "%s/%s/%s/%s.cdb" % (ORIG_DIR, sub_dir, sub_dir2, sub_dir3)
-    #sys.stderr.write(file_loc+ '\n')
     F = cdb.init(file_loc)
     sent = F.get(sid)
-    #sys.stderr.write(sent + '\n')
     return sent
 
 def get_original_sentence(key):
@@ -93,18 +90,15 @@ def get_original_sentence(key):
     if value != None:
         value = value.split(",")
     else :
-        #sys.stderr.write("No SID corresponding to %s.\n" % (key))
         return None
 
     all_pa_str = []
-    #orig_sentences = []
     for instance in value:
         sid, relation = instance.split(":")
         relation = relation.split(";")[0]
-        sent = get_orig_sentence(sid)
+        sent = get_sentence_by_sid(sid)
         pa_str = get_pa_from_sid(sid)
         if sent != None and pa_str != None:
-            #orig_sentences.append(sent)
             all_pa_str.append((pa_str, sent))
     return all_pa_str
 

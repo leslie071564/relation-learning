@@ -144,63 +144,6 @@ class Event(object):
         raw_context_word = get_context_words(self.num)
         self.context_word = {k : v for k, v in raw_context_word.items() if k not in skip}
 
-    ### REMOVE
-    def _print_task(self, pred):
-        # take a predicate object as input.
-        verb = pred.verb_rep
-        # TODO: deal with causal,... predicates.
-        query = "%s＊" % get_verb_query(remove_hira(verb, keep_plus=True).decode('utf-8'))
-        given_cases = pred.args.keys()
-        for case in given_cases:
-            query = "%s%s→%s" % (remove_hira(pred.args[case][0]), ENG_HIRA[case], query)
-        queries = {}
-        for case in CASE_ENG:
-            if case in given_cases:
-                continue
-            queries[case] = "%s%s→%s" % (u"〜物", ENG_HIRA[case], query)
-        return queries
-
-    ### REMOVE
-    def print_task(self):
-        # TODO: modify hard coding path.
-        base_string = "/home/arseny/work/launch/cline.sh %s --num 1000 --format knp > /zinnia/huang/EventKnowledge/data/original_sentences/%s && echo %s"
-        for case, query in self._print_task(self.pred1).items():
-            file_name = "%s_%s1.txt" % (self.num, case)
-            print base_string % (query, file_name, "finished: %s" % file_name) 
-        for case, query in self._print_task(self.pred2).items():
-            file_name = "%s_%s2.txt" % (self.num, case)
-            print base_string % (query, file_name, "finished: %s" % file_name) 
-
-    ### REMOVE
-    # TODO: combine with above and remove.
-        
-    def _set_single_arg_seperate(self, vkeys, cckey):
-        all_keys = []
-        for k in itertools.product(cckey, vkeys):
-            full_key = "%s%s" % (k[0], k[1])
-            all_keys.append(full_key)
-        #sys.stderr.write("key strings:\n%s\n" % ("\n".join(all_keys)))
-        for key in all_keys:
-            all_sentences = get_original_sentence(key.decode('utf-8'))
-            if all_sentences == None:
-                print key
-                continue
-            for parsed_sent, sent in all_sentences:
-                print sent
-                print parsed_sent
-                sys.exit()
-
-    def _set_arg_seperate(self):
-        self.arg_seperate = {}
-        vkeys1 = self.pred1.get_vstr_for_keys()
-        cckey1 = self.pred1.get_ccstr_for_keys()
-        self._set_single_arg_seperate(vkeys1, cckey1)
-        vkeys2 = self.pred2.get_vstr_for_keys()
-        cckey2 = self.pred2.get_ccstr_for_keys()
-        #self._set_single_arg_seperate(vkeys2, cckey2)
-
-
-
     def export(self):
         event_dict = {}
         event_dict['pred1'] = self.pred1.export()
@@ -350,8 +293,6 @@ if __name__ == "__main__":
     elif options.num != None:
         # debug mode.
         ev = Event(options.num)
-        for k,v in ev.context_word.items():
-            print k, v
     else:
         sys.stderr.write("no option specified.\n")
         
