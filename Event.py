@@ -282,7 +282,7 @@ class Predicate(object):
     def export(self):
         predicate_dict = {}
         for attr in self.attributes:
-            exec("predicate_dict[\'%s\'] = self.%s" % (attr, attr))
+            predicate_dict[attr] = getattr(self, attr)
         return predicate_dict
 
 
