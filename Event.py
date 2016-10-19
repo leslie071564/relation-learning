@@ -109,16 +109,26 @@ class Event(object):
         sys.stderr.write("key strings:\n")
         # get original sentences. 
         self.arg_count = defaultdict(lambda: defaultdict(int))
+        keep_args1 = []
+        keep_args2 = []
         for key in all_keys:
             if get_original_sentence(key.decode('utf-8')) == None:
                 sys.stderr.write("%s 0\n" % key)
                 continue
+            for np in sum(self.pred1.args.values(), []):
+                if np not in keep_args1 and np in key.split('-')[0].split('|'):
+                    keep_args1.append(np)
+            for np in sum(self.pred2.args.values(), []):
+                if np not in keep_args2 and np in key.split('-')[1].split('|'):
+                    keep_args2.append(np)
             original_sentence_of_key = get_original_sentence(key)
             sys.stderr.write("%s %d\n" % (key, len(original_sentence_of_key)))
             for parsed_sent, sent in original_sentence_of_key:
                 if print_sent:
                     PRINT_TO_FILE.write(sent+'\n')
                 self._update_arg_count(parsed_sent)
+        self.pred1.update_args(keep_args1)
+        self.pred2.update_args(keep_args2)
         # check for repeated sentences.
         self.arg_count = dict(self.arg_count)
         if remove_redundant:
@@ -221,6 +231,11 @@ class Predicate(object):
             charStr += remove_hira(arg0) + ENG_HIRA[case].encode('utf-8')
         charStr += remove_hira(self.verb_rep, keep_plus=True)
         return charStr
+
+    def update_args(self, keep_args):
+        for case, arg_list in self.args.items():
+            new_arg_list = filter(lambda x: x in keep_args, arg_list)
+            self.args[case] = new_arg_list
 
     def export(self):
         predicate_dict = {}
