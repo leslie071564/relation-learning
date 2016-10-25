@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 import sys
+sys.path.append("../nnAlignLearn")
+from CDB_Reader import CDB_Reader
 import shelve 
 import xml.etree.ElementTree as ET
-from utils import CASE_ENG
-from Event import *
+from utils import *
+#from Event import *
 # read from config file.
 import ConfigParser
 sys.path.append("/home/huang/work/CDB_handler")
@@ -17,36 +19,104 @@ IDS_FILE = config.get('Raw', 'IDS')
 SAVE_CASE = [u'ガ格', u'ヲ格', u'ニ格', u'デ格']
 KATA_ENG = dict(zip(SAVE_CASE, CASE_ENG))
 ENG_KATA = dict(zip(CASE_ENG, SAVE_CASE))
-
 cf_cdb = CDB_Reader(CF)
+import operator
 
-def get_amb_key(pred_repStr):
-    postfix = ""
-    if pred_repStr.split('+') > 1:
-        postfix = "+".join(pred_repStr.split('+')[1:])
-    result = juman.analysis(pred_repStr.split('/')[0].decode('utf-8'))
-    amb_key = result.mrph_list()[0].repnames()
-    if postfix:
-        amb_key = "%s+%s" % (amb_key, postfix)
-    if amb_key == pred_repStr:
-        return ""
-    return amb_key
+class CaseFrame(object):
+    def __init__(self, xml="", cf_dict={}):
+        if xml is not "": 
+            self._set_caseframe_by_xml(xml)
+        elif cf_dict:
+            # construct by existing cf database.
+            self.frequencies = {}
+            self.args = {}
+            for case, content in cf_dict.items():
+                if case.startswith("frequency"):
+                    case = case.split("_")[-1]
+                    self.frequencies[case] = int(content)
+                else:
+                    content = {arg.encode('utf-8'): int(count) for arg, count in content.iteritems()}
+                    self.args[case] = content
 
-def print_xml(pred_repStr):
-    amb_key = get_amb_key(pred_repStr)
-    xml = cf_cdb.get(pred_repStr, exhaustive=True)
-    xml_amb = cf_cdb.get(amb_key, exhaustive=True)
-    if not xml:
-        xml = xml_amb
-    elif xml_amb:
-        xml += xml_amb
-    for x in xml:
-        caseframedata = ET.fromstring(x)
-        entry = caseframedata[0]
-        predtype = entry.attrib['predtype']
-        if predtype != u"動":
-            continue
-        print x
+        else:
+            raise ValueError("cannnot constuct caseframe instance.")
+
+    def get_char_str(self, postfix_pred=""):
+        """
+        get the characteristic string of the caseframe object, by taking the most frequent argument in each case.
+        ex: /ほう が 切手/きって を 契約/けいやく+書/しょ に 貼る/はる 
+        """
+        char_str = ""
+        for case, args_dict in self.args.iteritems():
+            max_arg = max(args_dict.iteritems(), key=operator.itemgetter(1))[0]
+            char_str += "%s %s " % (max_arg, ENG_HIRA[case])
+        if postfix_pred:
+            char_str += postfix_pred
+        return char_str
+
+    def _set_caseframe_by_xml(self, cf_xml):
+        """
+        given the xml of caseframe,
+        set instance attributes. (args/frequencies)
+        """
+        self.frequencies = {}
+        self.args = {}
+        for argument in cf_xml:
+            case = argument.attrib['case']
+            if case not in SAVE_CASE:
+                continue
+            eng_case = KATA_ENG[case]
+            # save total frequency of current case.
+            case_frequency = argument.attrib['frequency']
+            self.frequencies[eng_case] = case_frequency
+            # save argument counts of current case.
+            case_dict = {}
+            for component in argument: 
+                arg_frequency = component.attrib['frequency']
+                arg = component.text
+                case_dict[arg] = arg_frequency
+                self.args[eng_case] = case_dict
+
+    def check_cf_validation(self, event_args):
+        flag = False
+        for case, given_args in event_args.iteritems():
+            if case not in self.args.keys():
+                return False
+            given_args = map(unicode, given_args)
+            cf_args = self.args[case].keys()
+            if set(cf_args) & set(given_args):
+                flag = True
+            else:
+                ambiguous_given_args = filter(lambda x: '?' in x, given_args)
+                ambiguous_cf_args = filter(lambda x: '?' in x, cf_args)
+                if ambiguous_given_args is not []:
+                    ambiguous_given_args = sum(map(lambda x: x.split('?'), ambiguous_given_args), [])
+                    if set(ambiguous_given_args) & set(cf_args):
+                        flag = True
+                elif ambiguous_cf_args is not []:
+                    ambiguous_cf_args = sum(map(lambda x: x.split('?'), ambiguous_cf_args), [])
+                    if set(ambiguous_cf_args) & set(given_args):
+                        flag = True
+        return flag
+            
+
+    def get_score(self, event_args, which, context_word={}):
+        # modify:
+        context_word = {arg.encode('utf-8'): count for arg, count in context_word.iteritems()}
+        check_cases = filter(lambda x: which in x, event_args.keys())
+
+        total_similarity = 0
+        for case in check_cases:
+            if case[0] not in self.args.keys():
+            #    return 0
+                continue
+            case_sim = cosine_similarity(event_args[case], self.args[case[0]], strip=True) 
+            # ??
+            if context_word:
+                context_sim = cosine_similarity(context_word, self.args[case[0]], strip=True)
+                case_sim += context_sim
+            total_similarity += case_sim
+        return total_similarity 
 
 
 def get_predicate_dict(pred_repStr, given_args, only_verb=True, all_cf=False):
@@ -71,13 +141,14 @@ def get_predicate_dict(pred_repStr, given_args, only_verb=True, all_cf=False):
         if only_verb and predtype != u"動":
             continue
         flag = True
-        for cf in entry:
-            cf_id = cf.attrib['id']
-            cf_dict = get_caseframe_dict(cf)
+        for cf_xml in entry:
+            cf_id = cf_xml.attrib['id']
+            this_cf = CaseFrame(xml=cf_xml)
+            cf_dict = this_cf.args
             if all_cf:
                 print cf_id
                 pred_dict[cf_id] = cf_dict
-            elif not given_args or check_cf_validation(cf_dict, given_args):
+            elif not given_args or this_cf.check_cf_validation(given_args):
                 print cf_id
                 pred_dict[cf_id] = cf_dict
     if flag:
@@ -87,55 +158,6 @@ def get_predicate_dict(pred_repStr, given_args, only_verb=True, all_cf=False):
     else:
         return get_predicate_dict(pred_repStr, given_args, only_verb=False)
 
-
-def get_caseframe_dict(cf_xml):
-    """
-    given the xml of caseframe,
-    return the caseframe_dict.
-    """
-    cf_dict = {}
-    for argument in cf_xml:
-        case = argument.attrib['case']
-        if case not in SAVE_CASE:
-            continue
-        eng_case = KATA_ENG[case]
-        case_frequency = argument.attrib['frequency']
-        cf_dict['frequency_%s' % eng_case] = case_frequency
-        case_dict = {}
-        for component in argument: 
-            arg_frequency = component.attrib['frequency']
-            arg = component.text
-            case_dict[arg] = arg_frequency
-        cf_dict[eng_case] = case_dict 
-    return cf_dict
-
-def check_cf_validation(cf, args):
-    """
-    given a caseframe dictionary and given arguments for some cases,
-    return True if the caseframe contains at least one of thee give arguments, otherwise returns False.
-    """
-    for case, given_args in args.items():
-        # 満腹/まんぷくa+感/かん --> 満腹/まんぷく+感/かん
-        #alphabets = re.compile(r'[a-z]+')
-        #given_args = map(lambda x: alphabets.sub('', x), given_args)
-        if case not in cf.keys():
-            return False
-        given_args = map(unicode, given_args)
-        if set(cf[case].keys()) & set(given_args):
-            print " ".join(list(set(cf[case].keys()) & set(given_args)))
-            return True
-        else:
-            ambiguous_given_args = filter(lambda x: '?' in x, given_args)
-            ambiguous_cf_args = filter(lambda x: '?' in x, cf[case].keys())
-            if ambiguous_given_args:
-                ambiguous_given_args = sum(map(lambda x: x.split('?'), ambiguous_given_args), [])
-                if set(ambiguous_given_args) & set(cf[case].keys()):
-                    return True
-            elif ambiguous_cf_args:
-                ambiguous_cf_args = sum(map(lambda x: x.split('?'), ambiguous_cf_args), [])
-                if set(ambiguous_cf_args) & set(given_args):
-                    return True
-    return False
 
 def write_cf_db(num, debug=False):
     """
@@ -164,8 +186,24 @@ def write_cf_db(num, debug=False):
 
 if __name__ == "__main__":
     for num in open(IDS_FILE, 'r').readlines():
+        sys.stderr.write(num)
         num = num.strip()
         print num
-        write_cf_db(num)
-        #write_cf_db(num, debug=True)
-
+        ev = EVENT_DB[num]
+        for which in ["1", "2"]:
+            score_dict = {}
+            cfs = CF_DB["%s_%s" % (num, which)]
+            for cf_id, cf_dict in cfs.items():
+                pred, pred_num = cf_id.split(':')
+                #pred_num = re.match('.*?([0-9]+)$', pred_num).group(1)
+                try:
+                    this_cf = CaseFrame(cf_dict=cf_dict)
+                    sys.exit()
+                except:
+                    continue
+                score_dict[cf_id] = this_cf.get_score(ev['arg_count'], which, context_word=ev['context_word'])
+            score_dict = sorted(score_dict.items(), key=operator.itemgetter(1), reverse=True)
+            for cf_id, cf_score in score_dict[:5]:
+                if cf_score == 0:
+                    break
+                print cf_id, cf_score

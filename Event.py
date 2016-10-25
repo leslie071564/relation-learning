@@ -4,13 +4,12 @@ import shelve
 import re
 import codecs
 import os
-#sys.stdin = codecs.getwriter('utf-8')(sys.stdin)
-#sys.stderr = codecs.getwriter('utf-8')(sys.stderr)
-#sys.stdout = codecs.getwriter('utf-8')(sys.stdout)
 import itertools
+import operator
 import argparse
 from itertools import product
 from subprocess import check_output
+from build_cf_db import CaseFrame
 from utils import *
 sys.path.append("../nnAlignLearn")
 from RetrieveOriginalData import *
@@ -22,16 +21,16 @@ ARG_FILE = config.get('Raw', 'ARG_FILE')
 IDS_FILE = config.get('Raw', 'IDS')
 GOLD_ALIGN = shelve.open(config.get('Raw', 'GOLD'), flag='r')
 ORIG_TEXT_DIR = config.get('Original', 'ORIG_TEXT_DIR')
+CF_DB = shelve.open(config.get('DB', 'CF_DB'), flag='r')
 
 class Event(object):
-    #attributes = ['pred1', 'pred2', 'charStr_raw', 'charStr', 'gold', 'impossible_align', 'cf-num', 'context_word', 'arg_count']
-    attributes = ['pred1', 'pred2', 'charStr_raw', 'charStr', 'gold', 'impossible_align', 'arg_count', 'context_word']
-    def __init__(self, num, event_dict=None, modify=[], neglect=[]):
-        # event_dict: dictionary from which the event instance is build.
-        # modify: attribute(s) to be updated.
-        # neglect: atttribute(s) not to be set nor modified. 
+    attributes = ['pred1', 'pred2', 'charStr_raw', 'charStr', 'gold', 'impossible_align', 'arg_count', 'context_word', 'cf_ids']
+    def __init__(self, num, event_dict=None, modify=[]):
+        """
+        Build event attribute from scratch of from existing database (when event dict is given).
+        modify is the list of attribute(s) to be updated.
+        """
         self.num = num
-        self.neglect = neglect
         if event_dict == None:
             # build instance from scratch.
             self._set_all()
@@ -40,14 +39,15 @@ class Event(object):
             self.pred1 = Predicate("", event_dict['pred1'])
             self.pred2 = Predicate("", event_dict['pred2'])
             for attr in self.attributes[2:]:
-                if attr in neglect:
-                    continue
                 if attr in modify:
                     exec("self._set_%s()" % attr)
                 else:
                     setattr(self, attr, event_dict[attr])
 
     def _set_all(self):
+        """
+        Set all the event attributes.
+        """
         pa1_str, pa2_str = self._retrieve_raw_event()
         self.charStr_raw = "%s => %s" % (pa1_str, pa2_str)
         # set predicates and arguments.
@@ -62,9 +62,12 @@ class Event(object):
         self._set_impossible_align()
         self._set_arg_count()
         self._set_context_word()
+        self._set_cf_ids()
 
     def _retrieve_raw_event(self):
-        # retrieve the line of current event pair.
+        """
+        Retrieve the line of current event pair.
+        """
         command = "head -n %s %s | tail -n 1" % (self.num, ARG_FILE)
         line = check_output(command, shell=True)
         pa1_str = re.sub(r"[{{}}]", "", line.split(" ")[1])
@@ -72,19 +75,37 @@ class Event(object):
         return pa1_str, pa2_str
 
     def _set_charStr_raw(self):
+        """
+        Set the raw characteristic string of event instance.
+        ex: 1vA貼る/はる:1w604(切手/きって) => 2vA入れる/いれる:2n627(ポスト/ぽすと,応募/おうぼ+箱/はこ)
+        """
         pa1_str, pa2_str = self._retrieve_raw_event()
         self.charStr_raw = "%s => %s" % (pa1_str, pa2_str)
 
     def _set_charStr(self):
-        self.charStr = "%s --> %s" % (self.pred1.get_charStr(), self.pred2.get_charStr())
+        """
+        Set the characteristic string of event instance.
+        ex: 切手を貼る => ポストに入れる 
+        """
+        self.charStr = "%s => %s" % (self.pred1.get_charStr(), self.pred2.get_charStr())
 
     def _set_gold(self):
+        """
+        Set the gold ailgnment of event instance (if exist). 
+        The gold attribute will be None if the event pair is not annotated.
+        The gold alignment stored is processed to remove ', /, p, g2, ...
+        """
         if self.num in GOLD_ALIGN.keys():
             self.gold = process_gold(GOLD_ALIGN[self.num])
         else:
             self.gold = None
 
     def _set_impossible_align(self):
+        """
+        If the two cases with different given cases exists, the alignemnts between such cases would be regarded as impossible aligns.
+        ex: 切手を貼る => ポストに入れる
+            impossible_align = ['w-n']
+        """
         given_args1 = self.pred1.args
         given_args2 = self.pred2.args
         self.impossible_align = []
@@ -94,6 +115,9 @@ class Event(object):
             self.impossible_align.append("%s-%s" % (case1, case2))
 
     def _set_arg_count(self, remove_redundant=False, print_sent=""):
+        """
+        WRITE HERE!
+        """
         if print_sent:
             PRINT_TO_FILE = open(print_sent, 'w')
         vkeys1 = self.pred1.get_vstr_for_keys()
@@ -135,6 +159,8 @@ class Event(object):
             self.orig_sentences = remove_redundant_sentence(self.orig_sentences)
 
     def _update_arg_count(self, parsed_sent):
+        """
+        """
         PAS = parsed_sent.split(" - ")
         # not working: PAS_components = map(str.split(" "), PAS)    
         PAS_components = map(lambda x: x.split(" "), PAS)
@@ -142,7 +168,7 @@ class Event(object):
             for arg, case in zip(pa_components[0::2], pa_components[1::2]):
                 if case not in KATA_ENG.keys():
                     continue
-                arg = "+".join(map(lambda x: x.split('/')[0], arg.split('+')))
+                #arg = "+".join(map(lambda x: x.split('/')[0], arg.split('+')))
                 self.arg_count["%s%s" % (KATA_ENG[case.decode('utf-8')], pred_index+1)][arg] += 1
 
     def print_orig_sentences(self, write_to_file):
@@ -154,13 +180,51 @@ class Event(object):
         raw_context_word = get_context_words(self.num)
         self.context_word = {k : v for k, v in raw_context_word.items() if k not in skip}
 
+    def _set_cf_ids(self):
+        self.cf_ids = {"1":[], "2":[]}
+        for which in ["1", "2"]:
+            score_dict = {}
+            cfs = CF_DB["%s_%s" % (self.num, which)]
+            for cf_id, cf_dict in cfs.iteritems():
+                try:
+                    this_cf = CaseFrame(cf_dict=cf_dict)
+                except:
+                    #sys.stderr.write()
+                    continue
+                score_dict[cf_id] = this_cf.get_score(self.arg_count, which, context_word=self.context_word)
+            score_dict = sorted(score_dict.items(), key=operator.itemgetter(1), reverse=True)
+            flag = False
+            for cf_id, cf_score in score_dict:
+                if flag and cf_score == 0:
+                    break
+                if cf_score != 0:
+                    flag = True
+                self.cf_ids[which].append(cf_id)
+                #sys.stderr.write("%s %.3f" % (cf_id, cf_score))
+            # modify:
+            if flag == False:
+                self.cf_ids[which] = self.cf_ids[which][::-1]
+
+
+    def get_all_feature(self, align, cf_ids):
+        self.get_cfsim_feature(align)
+
+
+    def get_binary_feature(self, align):
+        postfix = "_aligned"
+        binary_feats = []
+        for a in align:
+            binary_feats.append("%s%s" % (a, postfix))
+        return " ".join(binary_feats)
+
+    def get_cfsim_feature(self, align, cf_inst):
+        pass
+
     def export(self):
         event_dict = {}
         event_dict['pred1'] = self.pred1.export()
         event_dict['pred2'] = self.pred2.export()
         for attr in self.attributes[2:]:
-            if attr in self.neglect:
-                continue
             event_dict[attr] = getattr(self, attr)
         return event_dict
 
@@ -180,6 +244,7 @@ class Predicate(object):
         regex = re.compile(verb_pattern)
         self.negation, self.voice, self.verb_stem = regex.search(verb_str).groups()
         self.verb_rep = get_verb_form(self.verb_stem, self.voice)
+
     def _set_arguments(self, verb_key):
         self.args = {}
         regex = re.compile(noun_pattern)
@@ -237,6 +302,7 @@ class Predicate(object):
             new_arg_list = filter(lambda x: x in keep_args, arg_list)
             self.args[case] = new_arg_list
 
+
     def export(self):
         predicate_dict = {}
         for attr in self.attributes:
@@ -262,15 +328,6 @@ def update(update_list, event_db="/zinnia/huang/EventKnowledge/data/event.db"):
         ev = Event(num, EVENT_DB[num], modify=update_list)
         EVENT_DB[num] = ev.export()
         sys.stderr.write("done\n")
-# REMOVE or REWRITE
-def print_tasks():
-    event_db = "/zinnia/huang/EventKnowledge/data/event.db"
-    EVENT_DB = shelve.open(event_db)
-    for num in open(IDS_FILE, 'r').readlines():
-        num = num.rstrip()
-        ev = Event(num, EVENT_DB[num])
-        #ev.print_task()
-        ev.print_processed_task()
 
 def print_ev_orig_sentences(orig_dir=ORIG_TEXT_DIR, ids=IDS_FILE):
     nums = []
@@ -293,8 +350,6 @@ def print_ev_orig_sentences(orig_dir=ORIG_TEXT_DIR, ids=IDS_FILE):
 
 ### testing:
 if __name__ == "__main__":
-    #print_ev_orig_sentences()
-    #sys.exit()
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', "--store_db", action="store", dest="store_db")
     parser.add_argument('-n', "--num", action="store", dest="num")
@@ -308,6 +363,15 @@ if __name__ == "__main__":
     elif options.num != None:
         # debug mode.
         ev = Event(options.num)
+        print "\n".join(ev.cf_ids['1'])
+        print "\n".join(ev.cf_ids['2'])
+        '''
+        event_db = "/zinnia/huang/EventKnowledge/data/event.db"
+        EVENT_DB = shelve.open(event_db, flag='r')
+        num = options.num
+        ev = Event(num, EVENT_DB[num])
+        ev.get_cf_num("%s_1" % (num))
+        '''
     else:
         sys.stderr.write("no option specified.\n")
         

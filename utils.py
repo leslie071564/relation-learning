@@ -3,6 +3,7 @@ import re
 from pyknp import Juman
 import itertools
 from itertools import product
+from math import sqrt
 juman = Juman(command="/home/huang/usr/bin/juman", rcfile="/home/huang/usr/etc/jumanrc")
 CASE_ENG = ['g', 'w', 'n', 'd']
 CASE_KATA = [u"ガ", u"ヲ", u"ニ", u"デ"]
@@ -105,3 +106,54 @@ def process_gold(raw_gold):
     return trim_gold
 
 
+def vector_norm(v):
+    """
+    expect a dictionary as input
+    """
+    n2 = 0
+    for key, value in v.iteritems():
+        if key == 'all':
+            continue
+        n2 += value ** 2
+    return sqrt(n2)
+
+def cosine_similarity(v1, v2, get_score=False, strip=False):
+    """
+    calculate cosine similarity of two dictionary-vector.
+    """
+    norm_v1 = vector_norm(v1)
+    norm_v2 = vector_norm(v2)
+    denom = norm_v1 * norm_v2
+    if denom == 0:
+        return 0
+    if strip:
+        v1 = {"+".join(map(lambda x: x.split('/')[0], arg.split('+'))) : count for arg, count in v1.iteritems()}
+        v2 = {"+".join(map(lambda x: x.split('/')[0], arg.split('+'))) : count for arg, count in v2.iteritems()}
+
+    #calculate inner product
+    inner = 0
+    sharedArg = set(v1.keys()).intersection(set(v2.keys()))
+    for w in sharedArg:
+        inner += v1[w]*v2[w]
+
+    if get_score == True:
+        return (inner * (norm_v1 + norm_v2)) / denom
+    else :
+        return inner/denom
+
+def get_amb_key(pred_repStr):
+    """
+    given the rename of a predicate,
+    return the ambiguous predicate repname.
+    (if the ambiguous predicate repname is the same as the repname given, return empty string.)
+    """
+    postfix = ""
+    if pred_repStr.split('+') > 1:
+        postfix = "+".join(pred_repStr.split('+')[1:])
+    result = juman.analysis(pred_repStr.split('/')[0].decode('utf-8'))
+    amb_key = result.mrph_list()[0].repnames()
+    if postfix:
+        amb_key = "%s+%s" % (amb_key, postfix)
+    if amb_key == pred_repStr:
+        return ""
+    return amb_key
