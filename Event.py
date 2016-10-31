@@ -11,7 +11,6 @@ from itertools import product
 from subprocess import check_output
 from build_cf_db import CaseFrame
 from utils import *
-sys.path.append("../nnAlignLearn")
 from RetrieveOriginalData import *
 from Original_sentences_analysis import * 
 import ConfigParser
@@ -206,10 +205,20 @@ class Event(object):
                 self.cf_ids[which] = self.cf_ids[which][::-1]
 
 
-    def get_all_feature(self, align, cf_ids):
-        self.get_cfsim_feature(align)
+    def get_all_features_dict(self):
+        cf1s = CF_DB["%s_1" % self.num]
+        cf2s = CF_DB["%s_2" % self.num]
+        all_features_dict = {}
+        for i in range(min(5, len(self.cf_ids['1']))):
+            for j in range(min(5, len(self.cf_ids['2']))):
+                cf1_id = self.cf_ids['1'][i]
+                cf2_id = self.cf_ids['2'][j]
+                cont_dict = self.get_context_features(CaseFrame(cf_dict=cf1s[cf1_id]), CaseFrame(cf_dict=cf2s[cf2_id]))
+                cfsim_dict = self.get_cfsim_features(CaseFrame(cf_dict=cf1s[cf1_id]), CaseFrame(cf_dict=cf2s[cf2_id]))
+                all_features_dict["%s_%s" % (i, j)] = {'cfsim': cfsim_dict, 'context': cont_dict}
+        return all_features_dict
 
-
+    # REMOVE
     def get_binary_feature(self, align):
         postfix = "_aligned"
         binary_feats = []
@@ -217,8 +226,39 @@ class Event(object):
             binary_feats.append("%s%s" % (a, postfix))
         return " ".join(binary_feats)
 
-    def get_cfsim_feature(self, align, cf_inst):
-        pass
+    def get_cfsim_features(self, cf1, cf2):
+        """
+        return cfsim feature dictionary.
+        """
+        cfsim_feature_dict = {}
+        for c1, c2 in product(CASE_ENG, CASE_ENG):
+            align = "%s-%s" % (c1, c2)
+            if c1 not in cf1.args.keys() or c2 not in cf2.args.keys():
+                continue
+            align_sim = round(cosine_similarity(cf1.args[c1], cf2.args[c2]), 3)
+            if align_sim:
+                cfsim_feature_dict[align] = align_sim 
+        return cfsim_feature_dict
+
+
+    def get_context_features(self, cf1, cf2):
+        """
+        return context feature dictionary.
+        """
+        context_feature_dict = {}
+        for c1, c2 in product(CASE_ENG, CASE_ENG):
+            align = "%s-%s" % (c1, c2)
+            align_context_score = 0.0
+            for w, count in self.context_word.items():
+                w = w.encode('utf-8')
+                p1 = cf1.get_arg_probability(c1, w)
+                p2 = cf2.get_arg_probability(c2, w)
+                align_context_score += min(p1, p2) * count
+            align_context_score = round(align_context_score, 3)
+            if align_context_score:
+                context_feature_dict[align] = align_context_score
+        return context_feature_dict
+
 
     def export(self):
         event_dict = {}
@@ -362,16 +402,11 @@ if __name__ == "__main__":
         update(options.update.split('/'))
     elif options.num != None:
         # debug mode.
-        ev = Event(options.num)
-        print "\n".join(ev.cf_ids['1'])
-        print "\n".join(ev.cf_ids['2'])
-        '''
-        event_db = "/zinnia/huang/EventKnowledge/data/event.db"
+        #ev = Event(options.num)
+        event_db="/zinnia/huang/EventKnowledge/data/event.db"
         EVENT_DB = shelve.open(event_db, flag='r')
         num = options.num
         ev = Event(num, EVENT_DB[num])
-        ev.get_cf_num("%s_1" % (num))
-        '''
     else:
         sys.stderr.write("no option specified.\n")
         
