@@ -14,7 +14,6 @@ IDS_FILE = config.get('Raw', 'IDS')
 ORIG_TEXT_DIR = config.get('Original', 'ORIG_TEXT_DIR')
 ORIG_KNP_DIR = config.get('Original', 'ORIG_KNP_DIR')
 ORIG_PROCESSED_DIR = config.get('Original', 'ORIG_PROCESSED_DIR')
-skip_list = [u"．．．", u"こと", u"切手", u"ポスト"]
 
 def print_knp_task():
     for num in open(IDS_FILE, 'r').readlines():
@@ -29,6 +28,9 @@ def process_knp_file(knp_file):
     for line in iter(open(knp_file, 'r').readline, ""):
         sent_data += line
         if line.strip() == "EOS":
+            #result = knp.result(sent_data.decode('utf-8'))
+            #NP_list = get_NP_list(result)
+            #sys.exit()
             try:
                 result = knp.result(sent_data.decode('utf-8'))
                 NP_list = get_NP_list(result)
@@ -41,38 +43,54 @@ def process_knp_file(knp_file):
             sent_data = ""
     return event_NP_counts
 
+def get_noun(comp_str):
+    if '+' not in comp_str:
+        return comp_str
+    comp_str = comp_str.split('+')[-2:]
+    if len(comp_str[-1].split('/')[0]) == 1:
+        return "+".join(comp_str)
+    return comp_str[-1]
 
 def get_NP_list(result):
     NP_list = []
-    cmp_flag = False
+    noun_postfix = ""
+    compound_postfix = ""
     for mrph in reversed(result.mrph_list()):
-        if mrph.hinsi != u"名詞" and not cmp_flag:
+        mrph_rep = mrph.repname
+        if not mrph_rep:
+            noun_postfix = ""
+            compound_postfix = ""
             continue
-        if mrph.bunrui == u"数詞":
-            arg = u"[数詞]"
-        else:
-            arg = mrph.genkei
-        if cmp_flag:
-            NP_list[-1] = "%s+%s" % (arg, NP_list[-1])
-        else:
-            NP_list.append(arg)
-        # maintain flag.
-        if u"複合←" in mrph.fstring:
-            cmp_flag = True
-        else:
-            cmp_flag = False
-    # option: take only head words.
-    pruned_NP_list = []
-    for np in NP_list:
-        np_parts = np.split('+')
-        head = np_parts[-1]
-        if head == u"[数詞]":
+        if mrph.bunrui in [u"数詞", u"人名"]:
+            mrph_rep = "[%s]" % (mrph.bunrui)
+
+        # compound noun or noun phrase.
+        if compound_postfix:
+            if u"複合←" in mrph.fstring:
+                compound_postfix = "%s+%s" % (mrph_rep, compound_postfix)
+            else:
+                comp_noun = "%s+%s" % (mrph_rep, compound_postfix)
+                NP_list.append("%s+%s" % (mrph_rep, compound_postfix))
+                compound_postfix = ""
             continue
-        if len(head) > 1:
-            pruned_NP_list.append(head)
-        elif len(head) == 1 and len(np_parts) >= 2:
-            pruned_NP_list.append("%s+%s" % (np_parts[-2], head))
-    return pruned_NP_list
+        if noun_postfix:
+            if mrph.hinsi == u"名詞":
+                NP_list.append("%s+%s" % (mrph_rep, noun_postfix))
+            noun_postfix = ""
+            continue
+        # normal noun.
+        if mrph.hinsi == u"名詞" and u"複合←" in mrph.fstring:
+            compound_postfix = mrph_rep
+            continue
+        elif mrph.hinsi == u"接尾辞":
+            noun_postfix = mrph_rep
+            continue
+        elif mrph.hinsi == u"名詞":
+            NP_list.append(mrph_rep)
+            continue
+
+    NP_list = map(get_noun, NP_list)
+    return NP_list
 
 def print_processed_task():
     for num in open(IDS_FILE, 'r').readlines():
@@ -90,19 +108,10 @@ def get_context_words(event_id):
     return dict(np_counter)
     
 
-'''
-def print_processed_task(self):
-    for index, pred in enumerate([self.pred1, self.pred2]):
-        given_cases = pred.args.keys()
-        for case in CASE_ENG:
-            if case in given_cases:
-                continue
-            base_filename = "%s_%s%s.txt" % (self.num, case, index+1)
-            print u"grep 用言代表表記:%s %s/%s > %s/%s" % (pred.verb_rep, raw_dir, base_filename, processed_dir, base_filename)
-'''
-
 if __name__ == "__main__":
     np_counts = process_knp_file("%s/104401.txt" % (ORIG_KNP_DIR))
-    #for np, counts in np_counts.items():
-    #    print counts, np
+    for np, counts in np_counts.items():
+        if counts < 5:
+            continue
+        print counts, np
 
