@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 import sys
-sys.path.append("../nnAlignLearn")
 from CDB_Reader import CDB_Reader
 import shelve 
 import xml.etree.ElementTree as ET
@@ -118,7 +117,26 @@ class CaseFrame(object):
             total_similarity += case_sim
         return total_similarity 
 
+    def get_arg_probability(self, case, arg_list):
+        """
+        find the probability that a given argument appears in a given case of the predicate. 
+        """
+        if type(arg_list) == str:
+            arg_list = [arg_list]
+        if case not in self.args.keys():
+            return 0
+        case_args = {remove_hira(a):count for a, count in self.args[case].iteritems()}
+        case_frequency = float(self.frequencies[case])
+        total_prob = 0.0
+        for arg in arg_list:
+            if arg not in case_args.keys():
+                continue
+            #print arg
+            target_arg_count = case_args[arg]
+            total_prob += target_arg_count / case_frequency
+        return total_prob
 
+###
 def get_predicate_dict(pred_repStr, given_args, only_verb=True, all_cf=False):
     """
     given the rep-str of a predicate,
