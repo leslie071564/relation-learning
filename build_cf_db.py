@@ -125,7 +125,7 @@ class CaseFrame(object):
             arg_list = [arg_list]
         if case not in self.args.keys():
             return 0
-        case_args = {remove_hira(a):count for a, count in self.args[case].iteritems()}
+        case_args = {a:count for a, count in self.args[case].iteritems()}
         case_frequency = float(self.frequencies[case])
         total_prob = 0.0
         for arg in arg_list:

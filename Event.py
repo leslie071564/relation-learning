@@ -174,10 +174,20 @@ class Event(object):
         self._set_arg_count(print_sent=write_to_file)
 
     def _set_context_word(self):
-        skip = [u"こと"] + sum(self.pred1.args.values(), []) + sum(self.pred2.args.values(), [])
-        skip = map(remove_hira, skip)
-        raw_context_word = get_context_words(self.num)
-        self.context_word = {k : v for k, v in raw_context_word.items() if k not in skip}
+        seperate_list = [self.pred1.verb_rep, self.pred2.verb_rep]
+        #seperate_list = sum(map(lambda x: x.split('+'), seperate_list), [])[::-1]
+        seperate_list = map(lambda x: x.split('+')[0], seperate_list)[::-1]
+        print " ".join(seperate_list)
+        raw_context_word = get_context_words(self.num, seperate_list, debug=True)
+
+        givens = sum(self.pred1.args.values(), []) + sum(self.pred2.args.values(), [])
+        skip = [u"こと/こと", u"[数詞]"] + givens + seperate_list
+        save_context = raw_context_word['f'] + raw_context_word['m']
+        self.context_word = {k : v for k, v in save_context.items() if k not in skip}
+        print "<All context words>"
+        for place, print_place in [('f', 'front'), ('m', 'middle'), ('r', 'after')]:
+            print print_place, ":"
+            print " ".join(filter(lambda y: raw_context_word[place][y] > 3, [x[0] for x in raw_context_word[place].items()]))
 
     def _set_cf_ids(self):
         self.cf_ids = {"1":[], "2":[]}
@@ -250,6 +260,10 @@ class Event(object):
             align = "%s-%s" % (c1, c2)
             align_context_score = 0.0
             for w, count in self.context_word.items():
+                ###
+                if count < 3:
+                    continue
+                ###
                 w = w.encode('utf-8')
                 p1 = cf1.get_arg_probability(c1, w)
                 p2 = cf2.get_arg_probability(c2, w)
@@ -402,11 +416,13 @@ if __name__ == "__main__":
         update(options.update.split('/'))
     elif options.num != None:
         # debug mode.
-        #ev = Event(options.num)
-        event_db="/zinnia/huang/EventKnowledge/data/event.db"
-        EVENT_DB = shelve.open(event_db, flag='r')
-        num = options.num
-        ev = Event(num, EVENT_DB[num])
+        ev = Event(options.num)
+        #print " ".join(filter(lambda x: ev.context_word[x] > 5, ev.context_word.keys()))
+        #event_db="/zinnia/huang/EventKnowledge/data/event.db"
+        #EVENT_DB = shelve.open(event_db, flag='r')
+        #num = options.num
+        #ev = Event(num, EVENT_DB[num])
+        #print ev.get_all_features_dict()
     else:
         sys.stderr.write("no option specified.\n")
         
