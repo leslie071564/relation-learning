@@ -5,13 +5,18 @@ import itertools
 from itertools import product
 from math import sqrt
 juman = Juman(command="/home/huang/usr/bin/juman", rcfile="/home/huang/usr/etc/jumanrc")
+
 CASE_ENG = ['g', 'w', 'n', 'd']
 CASE_KATA = [u"ガ", u"ヲ", u"ニ", u"デ"]
-#CASE_KATA = [u"ガ格", u"ヲ格", u"ニ格", u"デ格"]
 CASE_HIRA = [u"が", u"を", u"に", u"で"]
+CASE_VERBOSE = [u'ガ格', u'ヲ格', u'ニ格', u'デ格']
+
 ENG_HIRA = dict(zip(CASE_ENG, CASE_HIRA))
 ENG_KATA = dict(zip(CASE_ENG, CASE_KATA))
 KATA_ENG = dict(zip(CASE_KATA, CASE_ENG))
+VER_ENG = dict(zip(CASE_VERBOSE, CASE_ENG))
+ENG_VER = dict(zip(CASE_ENG, CASE_VERBOSE))
+
 verb_pattern = r"[12]([vjn])([APCKML])(.+)$"
 noun_pattern = r"([12])([gwnod])(\d*)(.+)$"
 ####
@@ -91,6 +96,8 @@ def process_gold(raw_gold):
         return []
     raw_gold = map(lambda x: x.replace("\'",""), raw_gold)
     raw_gold = map(lambda x: x.replace("g2","g"), raw_gold)
+    raw_gold = map(lambda x: x.replace("(",""), raw_gold)
+    raw_gold = map(lambda x: x.replace(")",""), raw_gold)
     
     trim_gold = []
     for g in raw_gold:
