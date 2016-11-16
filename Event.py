@@ -9,7 +9,7 @@ import operator
 import argparse
 from itertools import product
 from subprocess import check_output
-from build_cf_db import CaseFrame
+#from build_cf_db import *
 from utils import *
 from RetrieveOriginalData import *
 from Original_sentences_analysis import * 
@@ -20,7 +20,7 @@ ARG_FILE = config.get('Raw', 'ARG_FILE')
 IDS_FILE = config.get('Raw', 'IDS')
 GOLD_ALIGN = shelve.open(config.get('Raw', 'GOLD'), flag='r')
 ORIG_TEXT_DIR = config.get('Original', 'ORIG_TEXT_DIR')
-CF_DB = shelve.open(config.get('DB', 'CF_DB'), flag='r')
+CF = config.get('CF', 'CF') 
 
 class Event(object):
     attributes = ['pred1', 'pred2', 'charStr_raw', 'charStr', 'gold', 'impossible_align', 'arg_count', 'context_word', 'cf_ids']
@@ -96,8 +96,11 @@ class Event(object):
         """
         if self.num in GOLD_ALIGN.keys():
             self.gold = process_gold(GOLD_ALIGN[self.num])
+            if self.gold == ['X']:
+                self.gold = []
         else:
             self.gold = None
+        print " ".join(self.gold)
 
     def _set_impossible_align(self):
         """
@@ -115,7 +118,7 @@ class Event(object):
 
     def _set_arg_count(self, remove_redundant=False, print_sent=""):
         """
-        WRITE HERE!
+        Retrieve original sentences and update set the counts of arguments in each case in the original sentences.
         """
         if print_sent:
             PRINT_TO_FILE = open(print_sent, 'w')
@@ -128,7 +131,6 @@ class Event(object):
         for i in itertools.product(cckey1, vkeys1, cckey2, vkeys2):
             full_key = "%s%s-%s%s" % (i[0], i[1], i[2], i[3])
             all_keys.append(full_key)
-        #sys.stderr.write("key strings:\n%s\n" % ("\n".join(all_keys)))
         sys.stderr.write("key strings:\n")
         # get original sentences. 
         self.arg_count = defaultdict(lambda: defaultdict(int))
@@ -159,9 +161,9 @@ class Event(object):
 
     def _update_arg_count(self, parsed_sent):
         """
+        update the argument counts in each case of predicates in orignal sentences.
         """
         PAS = parsed_sent.split(" - ")
-        # not working: PAS_components = map(str.split(" "), PAS)    
         PAS_components = map(lambda x: x.split(" "), PAS)
         for pred_index, pa_components in enumerate(PAS_components):
             for arg, case in zip(pa_components[0::2], pa_components[1::2]):
@@ -175,21 +177,20 @@ class Event(object):
 
     def _set_context_word(self):
         seperate_list = [self.pred1.verb_rep, self.pred2.verb_rep]
-        #seperate_list = sum(map(lambda x: x.split('+'), seperate_list), [])[::-1]
         seperate_list = map(lambda x: x.split('+')[0], seperate_list)[::-1]
-        print " ".join(seperate_list)
-        raw_context_word = get_context_words(self.num, seperate_list, debug=True)
+        raw_context_word = get_context_words(self.num, seperate_list, debug=False)
 
         givens = sum(self.pred1.args.values(), []) + sum(self.pred2.args.values(), [])
         skip = [u"こと/こと", u"[数詞]"] + givens + seperate_list
         save_context = raw_context_word['f'] + raw_context_word['m']
         self.context_word = {k : v for k, v in save_context.items() if k not in skip}
-        print "<All context words>"
-        for place, print_place in [('f', 'front'), ('m', 'middle'), ('r', 'after')]:
-            print print_place, ":"
-            print " ".join(filter(lambda y: raw_context_word[place][y] > 3, [x[0] for x in raw_context_word[place].items()]))
+        #print "<All context words>"
+        #for place, print_place in [('f', 'front'), ('m', 'middle'), ('r', 'after')]:
+            #print print_place, ":"
+            #print " ".join(filter(lambda y: raw_context_word[place][y] > 3, [x[0] for x in raw_context_word[place].items()]))
 
     def _set_cf_ids(self):
+        CF_DB = shelve.open(config.get('DB', 'CF_DB'), flag='r')
         self.cf_ids = {"1":[], "2":[]}
         for which in ["1", "2"]:
             score_dict = {}
@@ -198,8 +199,9 @@ class Event(object):
                 try:
                     this_cf = CaseFrame(cf_dict=cf_dict)
                 except:
-                    #sys.stderr.write()
+                    sys.stderr.write("cannot convert case-frame object.\n")
                     continue
+                cf_id = "%s##%s" % (cf_id, this_cf.get_char_str())
                 score_dict[cf_id] = this_cf.get_score(self.arg_count, which, context_word=self.context_word)
             score_dict = sorted(score_dict.items(), key=operator.itemgetter(1), reverse=True)
             flag = False
@@ -209,18 +211,26 @@ class Event(object):
                 if cf_score != 0:
                     flag = True
                 self.cf_ids[which].append(cf_id)
-                #sys.stderr.write("%s %.3f" % (cf_id, cf_score))
+                sys.stderr.write("%s %.3f\n" % (cf_id, cf_score))
             # modify:
             if flag == False:
                 self.cf_ids[which] = self.cf_ids[which][::-1]
+        CF_DB.close()
 
 
-    def get_all_features_dict(self):
+    def get_all_features_dict(self, max_cf_num=5):
+        CF_DB = shelve.open(config.get('DB', 'CF_DB'), flag='r')
         cf1s = CF_DB["%s_1" % self.num]
         cf2s = CF_DB["%s_2" % self.num]
+        CF_DB.close()
         all_features_dict = {}
-        for i in range(min(5, len(self.cf_ids['1']))):
-            for j in range(min(5, len(self.cf_ids['2']))):
+        # general.
+        all_features_dict['all'] = {}
+        all_features_dict['all']['postPred'] = self.pred2.args.keys()
+        all_features_dict['all']['impossibleAlign'] = self.impossible_align
+
+        for i in range(min(max_cf_num, len(self.cf_ids['1']))):
+            for j in range(min(max_cf_num, len(self.cf_ids['2']))):
                 cf1_id = self.cf_ids['1'][i]
                 cf2_id = self.cf_ids['2'][j]
                 cont_dict = self.get_context_features(CaseFrame(cf_dict=cf1s[cf1_id]), CaseFrame(cf_dict=cf2s[cf2_id]))
@@ -228,19 +238,12 @@ class Event(object):
                 all_features_dict["%s_%s" % (i, j)] = {'cfsim': cfsim_dict, 'context': cont_dict}
         return all_features_dict
 
-    # REMOVE
-    def get_binary_feature(self, align):
-        postfix = "_aligned"
-        binary_feats = []
-        for a in align:
-            binary_feats.append("%s%s" % (a, postfix))
-        return " ".join(binary_feats)
 
     def get_cfsim_features(self, cf1, cf2):
         """
         return cfsim feature dictionary.
         """
-        cfsim_feature_dict = {}
+        cfsim_feature_dict = defaultdict(int)
         for c1, c2 in product(CASE_ENG, CASE_ENG):
             align = "%s-%s" % (c1, c2)
             if c1 not in cf1.args.keys() or c2 not in cf2.args.keys():
@@ -248,14 +251,16 @@ class Event(object):
             align_sim = round(cosine_similarity(cf1.args[c1], cf2.args[c2]), 3)
             if align_sim:
                 cfsim_feature_dict[align] = align_sim 
-        return cfsim_feature_dict
+                cfsim_feature_dict["%s-_" % c1] += align_sim
+                cfsim_feature_dict["_-%s" % c2] += align_sim
+        return dict(cfsim_feature_dict)
 
 
     def get_context_features(self, cf1, cf2):
         """
         return context feature dictionary.
         """
-        context_feature_dict = {}
+        context_feature_dict = defaultdict(int)
         for c1, c2 in product(CASE_ENG, CASE_ENG):
             align = "%s-%s" % (c1, c2)
             align_context_score = 0.0
@@ -271,8 +276,10 @@ class Event(object):
             align_context_score = round(align_context_score, 3)
             if align_context_score:
                 context_feature_dict[align] = align_context_score
-        return context_feature_dict
+                context_feature_dict["%s-_" % c1] += align_context_score
+                context_feature_dict["_-%s" % c2] += align_context_score
 
+        return dict(context_feature_dict)
 
     def export(self):
         event_dict = {}
@@ -281,7 +288,7 @@ class Event(object):
         for attr in self.attributes[2:]:
             event_dict[attr] = getattr(self, attr)
         return event_dict
-
+### End: Event Class
     
 class Predicate(object):
     attributes = ['verb_stem', 'verb_rep', 'args', 'negation', 'voice']
@@ -362,19 +369,146 @@ class Predicate(object):
         for attr in self.attributes:
             predicate_dict[attr] = getattr(self, attr)
         return predicate_dict
+### End: Predicate Class
+class CaseFrame(object):
+    def __init__(self, xml="", cf_dict={}):
+        """
+        initialize by xml or case-frame dictionary.
+        xml is prioritized.
+        """
+        if xml is not "": 
+            self._set_caseframe_by_xml(xml)
+        elif cf_dict:
+            # construct by existing cf database.
+            self.frequencies = {}
+            self.args = {}
+            for case, content in cf_dict["frequencies"].items():
+                self.frequencies[case] = int(content)
+            for case, content in cf_dict["args"].items():
+                content = {arg.encode('utf-8'): int(count) for arg, count in content.iteritems()}
+                self.args[case] = content
+        else:
+            raise ValueError("cannnot constuct caseframe instance.")
 
+    def _set_caseframe_by_xml(self, cf_xml):
+        """
+        given the xml of caseframe,
+        set instance attributes. (args/frequencies)
+        """
+        self.frequencies = {}
+        self.args = {}
+        for argument in cf_xml:
+            case = argument.attrib['case']
+            if case not in CASE_VERBOSE:
+                continue
+            eng_case = VER_ENG[case]
+            # save total frequency of current case.
+            case_frequency = argument.attrib['frequency']
+            self.frequencies[eng_case] = case_frequency
+            # save argument counts of current case.
+            case_dict = {}
+            for component in argument: 
+                arg_frequency = component.attrib['frequency']
+                arg = component.text
+                case_dict[arg] = arg_frequency
+                self.args[eng_case] = case_dict
 
+    def get_char_str(self, postfix_pred=""):
+        """
+        get the characteristic string of the caseframe object, by taking the most frequent argument in each case.
+        ex: /ほう が 切手/きって を 契約/けいやく+書/しょ に 貼る/はる 
+        """
+        char_str = ""
+        for case, args_dict in self.args.iteritems():
+            max_arg = max(args_dict.iteritems(), key=operator.itemgetter(1))[0]
+            char_str += "%s %s " % (max_arg, ENG_HIRA[case])
+        if postfix_pred:
+            char_str += postfix_pred
+        return char_str
+
+    def check_cf_validation(self, event_args):
+        """
+        check if the current case-frame contains any of the given arguments.
+        """
+        flag = False
+        for case, given_args in event_args.iteritems():
+            if case not in self.args.keys():
+                return False
+            given_args = map(unicode, given_args)
+            cf_args = self.args[case].keys()
+            if set(cf_args) & set(given_args):
+                flag = True
+            else:
+                ambiguous_given_args = filter(lambda x: '?' in x, given_args)
+                ambiguous_cf_args = filter(lambda x: '?' in x, cf_args)
+                if ambiguous_given_args is not []:
+                    ambiguous_given_args = sum(map(lambda x: x.split('?'), ambiguous_given_args), [])
+                    if set(ambiguous_given_args) & set(cf_args):
+                        flag = True
+                elif ambiguous_cf_args is not []:
+                    ambiguous_cf_args = sum(map(lambda x: x.split('?'), ambiguous_cf_args), [])
+                    if set(ambiguous_cf_args) & set(given_args):
+                        flag = True
+        return flag
+            
+
+    def get_score(self, event_args, which, context_word={}):
+        # modify:
+        context_word = {arg.encode('utf-8'): count for arg, count in context_word.iteritems()}
+        check_cases = filter(lambda x: which in x, event_args.keys())
+
+        total_similarity = 0
+        for case in check_cases:
+            if case[0] not in self.args.keys():
+            #    return 0
+                continue
+            case_sim = cosine_similarity(event_args[case], self.args[case[0]], strip=True) 
+            # ??
+            if context_word:
+                context_sim = cosine_similarity(context_word, self.args[case[0]], strip=True)
+                case_sim += context_sim
+            total_similarity += case_sim
+        return total_similarity 
+
+    def get_arg_probability(self, case, arg_list):
+        """
+        find the probability that a given argument appears in a given case of the predicate. 
+        """
+        if type(arg_list) == str:
+            arg_list = [arg_list]
+        if case not in self.args.keys():
+            return 0
+        case_args = {a:count for a, count in self.args[case].iteritems()}
+        case_frequency = float(self.frequencies[case])
+        total_prob = 0.0
+        for arg in arg_list:
+            if arg not in case_args.keys():
+                continue
+            #print arg
+            target_arg_count = case_args[arg]
+            total_prob += target_arg_count / case_frequency
+        return total_prob
+### End: CaseFrame Class
+
+### Event-db Related:
 def build_event_db(db_loc, ids_file):
+    """
+    Build the EVENT_DB database.
+    """
     event_db = shelve.open(db_loc)
     for num in open(ids_file, 'r').readlines():
         sys.stderr.write("# %s\n" % (num))
         num = num.rstrip()
         ev = Event(int(num))
         event_db[num] = ev.export()
+
     
-# now possible: (Event)charStr/charStr_raw/gold
-### TODO: (Predicate) negation/voice/verb_raw 
 def update(update_list, event_db="/zinnia/huang/EventKnowledge/data/event.db"):
+    """
+    update one or several atttribute to the event db.
+    """
+    # now possible: (Event)charStr/charStr_raw/gold
+    ### TODO: (Predicate) negation/voice/verb_raw 
     EVENT_DB = shelve.open(event_db)
     for num in open(IDS_FILE, 'r').readlines():
         num = num.rstrip()
@@ -383,6 +517,92 @@ def update(update_list, event_db="/zinnia/huang/EventKnowledge/data/event.db"):
         EVENT_DB[num] = ev.export()
         sys.stderr.write("done\n")
 
+### Cf-db Related:
+import xml.etree.ElementTree as ET
+#sys.path.insert(0, "../nnAlignLearn")
+from CDB_Reader import CDB_Reader
+def build_cf_db(db_loc, ids_file):
+    """
+    Build the CF_DB database.
+    """
+    for num in open(ids_file, 'r').readlines():
+        num = num.rstrip()
+        _build_cf_db(num)
+
+def _build_cf_db(num, debug=False):
+    """
+    write all the valid cfs to cf-db.
+    """
+    CF_DB = shelve.open(config.get('DB', 'CF_DB'))
+    EVENT_DB = shelve.open(config.get('DB', 'EVENT_DB'), flag='r')
+    ev = Event(num, EVENT_DB[num])
+
+    key1 = "%s_1" % num
+    pred1 = ev.pred1.verb_rep
+    args1 = ev.pred1.args
+    print "predicate: %s" % pred1 
+    if debug:
+        get_predicate_dict(pred1, args1)
+    else:
+        CF_DB[key1] = get_predicate_dict(pred1, args1)
+
+    key2 = "%s_2" % num
+    pred2 = ev.pred2.verb_rep
+    args2 = ev.pred2.args
+    print "predicate: %s" % pred2 
+    if debug:
+        get_predicate_dict(pred2, args2)
+    else:
+        CF_DB[key2] = get_predicate_dict(pred2, args2)
+    sys.stderr.write("%s done.\n" % num)
+
+def get_predicate_dict(pred_repStr, given_args, only_verb=True, all_cf=False):
+    """
+    given the rep-str of a predicate,
+    return the dictionary of the predicate(caseframe-id: caseframe-dictionary) 
+    """
+    cf_cdb = CDB_Reader(CF, repeated_keys=True)
+    amb_key = get_amb_key(pred_repStr)
+    xml = cf_cdb.get(pred_repStr, exhaustive=True)
+    xml_amb = cf_cdb.get(amb_key, exhaustive=True)
+    
+    if not xml:
+        xml = xml_amb
+    elif xml_amb:
+        xml += xml_amb
+
+    pred_dict = {}
+    flag = False
+
+    for x in xml:
+        caseframedata = ET.fromstring(x)
+        entry = caseframedata[0]
+        predtype = entry.attrib['predtype']
+        if only_verb and predtype != u"動":
+            continue
+        flag = True
+        for cf_xml in entry:
+            cf_id = cf_xml.attrib['id']
+            this_cf = CaseFrame(xml=cf_xml)
+            freq_dict = this_cf.frequencies
+            cf_dict = {}
+            cf_dict['args'] = this_cf.args
+            cf_dict['frequencies'] = this_cf.frequencies 
+            if all_cf:
+                print cf_id
+                pred_dict[cf_id] = cf_dict
+            elif not given_args or this_cf.check_cf_validation(given_args):
+                print cf_id
+                pred_dict[cf_id] = cf_dict
+    if flag:
+        if not pred_dict:
+            return get_predicate_dict(pred_repStr, given_args, only_verb=False, all_cf=True)
+        return pred_dict
+    else:
+        return get_predicate_dict(pred_repStr, given_args, only_verb=False)
+
+
+### Original Sentence Related:
 def print_ev_orig_sentences(orig_dir=ORIG_TEXT_DIR, ids=IDS_FILE):
     nums = []
     if type(ids) is list:
@@ -405,24 +625,34 @@ def print_ev_orig_sentences(orig_dir=ORIG_TEXT_DIR, ids=IDS_FILE):
 ### testing:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('-d', "--store_db", action="store", dest="store_db")
-    parser.add_argument('-n', "--num", action="store", dest="num")
+    parser.add_argument('-e', "--event_db", action="store", dest="event_db")
     parser.add_argument('-u', "--update", action="store", dest="update")
+    parser.add_argument('-c', "--cf_db", action="store", dest="cf_db")
+    #parser.add_argument('-d', "--store_db", action="store", dest="store_db")
+    parser.add_argument('-n', "--num", action="store", dest="num")
     options = parser.parse_args() 
 
-    if options.store_db != None:
-        build_event_db(options.store_db, IDS_FILE)
+    if options.event_db != None:
+        build_event_db(options.event_db, IDS_FILE)
+
     elif options.update != None:
         update(options.update.split('/'))
+
+    elif options.cf_db != None:
+        build_cf_db(options.cf_db, IDS_FILE)
+
     elif options.num != None:
         # debug mode.
+        num = options.num
         ev = Event(options.num)
-        #print " ".join(filter(lambda x: ev.context_word[x] > 5, ev.context_word.keys()))
-        #event_db="/zinnia/huang/EventKnowledge/data/event.db"
-        #EVENT_DB = shelve.open(event_db, flag='r')
-        #num = options.num
-        #ev = Event(num, EVENT_DB[num])
-        #print ev.get_all_features_dict()
+        sys.exit()
+
+        EVENT_DB = shelve.open(config.get('DB', 'EVENT_DB'), flag='r')
+        ev = Event(num, EVENT_DB[num])
+        EVENT_DB.close()
+        print ev.gold
+        sys.exit()
+        print ev.get_all_features_dict()
     else:
         sys.stderr.write("no option specified.\n")
         
