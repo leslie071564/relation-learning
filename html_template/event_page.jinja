@@ -1,0 +1,40 @@
+<head>
+    <meta charset="UTF-8" />
+</head>
+<body>
+<p>{{ id_string }}</p>
+<p>Gold Alignment: {{ gold }}</p>
+<p>System Output: {{ output }}</p>
+<p><a href={{ url_base }}{{ cf1_url }}>{{ cf1_str }}({{ cf1_sim }})</a> <a href=http://lotus.kuee.kyoto-u.ac.jp/~huang/alignment_learning/cf_candidate/{{ ID }}_1.html>候補</a></p>
+<p><a href={{ url_base }}{{ cf2_url }}>{{ cf2_str }}({{ cf2_sim }})</a> <a href=http://lotus.kuee.kyoto-u.ac.jp/~huang/alignment_learning/cf_candidate/{{ ID }}_2.html>候補</a></p>
+<a href={{ orig_url }}>[Original Sentences]</a>
+<a href={{ event_url }}>[Event Knowledge Graph]</a>
+
+<p>[Feature scores]</p>
+<table border=0><tr><td>
+    <table border=1>
+        <caption>CaseFrame Similarity</caption>
+        <th></th><th>{{ verb_2 }}(g)</th><th>{{ verb_2 }}(w)<th>{{ verb_2 }}(n)</th><th>{{ verb_2 }}(d)</th></th>
+        <tr><td>{{ verb_1 }}(g)</td><td>{{ gg_cfsim }}</td><td>{{ gw_cfsim }}</td><td>{{ gn_cfsim }}</td><td>{{ gd_cfsim }}</td></tr>
+        <tr><td>{{ verb_1 }}(w)</td><td>{{ wg_cfsim }}</td><td>{{ ww_cfsim }}</td><td>{{ wn_cfsim }}</td><td>{{ wd_cfsim }}</td></tr>
+        <tr><td>{{ verb_1 }}(n)</td><td>{{ ng_cfsim }}</td><td>{{ nw_cfsim }}</td><td>{{ nn_cfsim }}</td><td>{{ nd_cfsim }}</td></tr>
+        <tr><td>{{ verb_1 }}(d)</td><td>{{ dg_cfsim }}</td><td>{{ dw_cfsim }}</td><td>{{ dn_cfsim }}</td><td>{{ dd_cfsim }}</td></tr>
+    </table></td><td>
+    <table border=1>
+        <caption>Context Feature</caption>
+        <th></th><th>{{ verb_2 }}(g)</th><th>{{ verb_2 }}(w)<th>{{ verb_2 }}(n)</th><th>{{ verb_2 }}(d)</th></th>
+        <tr><td>{{ verb_1 }}(g)</td><td>{{ gg_context }}</td><td>{{ gw_context }}</td><td>{{ gn_context }}</td><td>{{ gd_context }}</td></tr>
+        <tr><td>{{ verb_1 }}(w)</td><td>{{ wg_context }}</td><td>{{ ww_context }}</td><td>{{ wn_context }}</td><td>{{ wd_context }}</td></tr>
+        <tr><td>{{ verb_1 }}(n)</td><td>{{ ng_context }}</td><td>{{ nw_context }}</td><td>{{ nn_context }}</td><td>{{ nd_context }}</td></tr>
+        <tr><td>{{ verb_1 }}(d)</td><td>{{ dg_context }}</td><td>{{ dw_context }}</td><td>{{ dn_context }}</td><td>{{ dd_context }}</td></tr>
+    </table></td><td>
+    <table border=1>
+        <caption>Conflict Ratio</caption>
+        <th></th><th>{{ verb_2 }}(g)</th><th>{{ verb_2 }}(w)<th>{{ verb_2 }}(n)</th><th>{{ verb_2 }}(d)</th></th>
+        <tr><td>{{ verb_1 }}(g)</td><td>{{ gg_conflict }}</td><td>{{ gw_conflict }}</td><td>{{ gn_conflict }}</td><td>{{ gd_conflict }}</td></tr>
+        <tr><td>{{ verb_1 }}(w)</td><td>{{ wg_conflict }}</td><td>{{ ww_conflict }}</td><td>{{ wn_conflict }}</td><td>{{ wd_conflict }}</td></tr>
+        <tr><td>{{ verb_1 }}(n)</td><td>{{ ng_conflict }}</td><td>{{ nw_conflict }}</td><td>{{ nn_conflict }}</td><td>{{ nd_conflict }}</td></tr>
+        <tr><td>{{ verb_1 }}(d)</td><td>{{ dg_conflict }}</td><td>{{ dw_conflict }}</td><td>{{ dn_conflict }}</td><td>{{ dd_conflict }}</td></tr>
+    </table></td><td>
+</table>
+</body>
