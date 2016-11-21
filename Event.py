@@ -210,11 +210,13 @@ class Event(object):
                     break
                 if cf_score != 0:
                     flag = True
-                self.cf_ids[which].append(cf_id)
+                self.cf_ids[which].append("%s##%.3f" % (cf_id, cf_score))
                 sys.stderr.write("%s %.3f\n" % (cf_id, cf_score))
             # modify:
             if flag == False:
+                #self.cf_ids[which] = map(lambda x: "%s##%s" % (x, 0), self.cf_ids[which][::-1])
                 self.cf_ids[which] = self.cf_ids[which][::-1]
+
         CF_DB.close()
 
 
@@ -231,8 +233,8 @@ class Event(object):
 
         for i in range(min(max_cf_num, len(self.cf_ids['1']))):
             for j in range(min(max_cf_num, len(self.cf_ids['2']))):
-                cf1_id = self.cf_ids['1'][i]
-                cf2_id = self.cf_ids['2'][j]
+                cf1_id = self.cf_ids['1'][i].split("##")[0]
+                cf2_id = self.cf_ids['2'][j].split("##")[0]
                 cont_dict = self.get_context_features(CaseFrame(cf_dict=cf1s[cf1_id]), CaseFrame(cf_dict=cf2s[cf2_id]))
                 cfsim_dict = self.get_cfsim_features(CaseFrame(cf_dict=cf1s[cf1_id]), CaseFrame(cf_dict=cf2s[cf2_id]))
                 all_features_dict["%s_%s" % (i, j)] = {'cfsim': cfsim_dict, 'context': cont_dict}

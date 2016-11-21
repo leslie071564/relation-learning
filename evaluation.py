@@ -10,22 +10,25 @@ gold_db = shelve.open(config.get('Raw', 'GOLD'), flag='r')
 
 def process_gold(raw_gold):
     if raw_gold == ['null']:
-        return [], {}
+        return {}, {}
     if raw_gold == ['X']:
-        return [], {}
-    gold_single = []
+        return {}, {}
+    gold_single = {}
     gold_multiple = {}
     # remove quasi-alignments and g2.
-    raw_gold = map(lambda x: x.replace("\'", ""), raw_gold)
-    raw_gold = map(lambda x: x.replace("g2", "g"), raw_gold)
+    processed_gold = map(lambda x: x.replace("\'", ""), raw_gold)
+    processed_gold = map(lambda x: x.replace("g2", "g"), processed_gold)
+    processed_gold = map(lambda x: x.replace("(", ""), processed_gold)
+    processed_gold = map(lambda x: x.replace(")", ""), processed_gold)
     # expand multi-alignments
-    for g in raw_gold:
+    for index, g in enumerate(processed_gold):
+        # single:
         if '/' not in g:
             if 'p' in g:
                 continue
             if g == 'd-d':
                 continue
-            gold_single.append(g)
+            gold_single[raw_gold[index]] = g
             continue
         # multi:
         c1s, c2s = g.split('-')
@@ -34,20 +37,26 @@ def process_gold(raw_gold):
         all_possibility = filter(lambda x: 'p' not in x, all_possibility)
         all_possibility = filter(lambda x: 'd-d' != x, all_possibility)
         if all_possibility:
-            gold_multiple[g] = all_possibility
+            #gold_multiple[g] = all_possibility
+            gold_multiple[raw_gold[index]] = all_possibility
     return gold_single, gold_multiple
 
-def process_id(ID, output, debug=False):
+def process_id(ID, output, debug=False, get_set=False):
     if output == ['null']:
         output = []
     gold_raw = gold_db[ID]
     gold_single, gold_multiple = process_gold(gold_raw)
-    correct = set(gold_single) & set(output)
-    for key, all_possibility in gold_multiple.items():
+    #correct = set(gold_single.values()) & set(output)
+    correct = []
+    for raw, processed in gold_single.items():
+        if processed in output:
+            correct.append((raw, processed))
+
+    for raw, all_possibility in gold_multiple.items():
         correct_multiple = set(all_possibility) & set(output)
         if correct_multiple == set():
             continue
-        correct.add(key)
+        correct.append((raw, list(correct_multiple)))
     # debug 
     if debug:
         print "#", ID
@@ -57,6 +66,8 @@ def process_id(ID, output, debug=False):
         print "output", " ".join(output), len(output)
         print "correct", " ".join(correct), len(correct)
     # debug 
+    if get_set:
+        return {'gold' : gold_single.keys() + gold_multiple.keys(), 'correct' : correct}
     return {'gold' : len(gold_single) + len(gold_multiple), 'output': len(output), 'correct' : len(correct)}
 
 def process_file(result_file, debug=False):
