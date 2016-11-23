@@ -17,21 +17,31 @@ def get_feature_type_list(setting_file):
     feature_types = filter(lambda x: feature_types[x] == 'True', feature_types.keys())
     return feature_types
 
+def get_config(setting_file):
+    config.read(setting_file)
+    global CfNum, NegSample
+    CfNum = config.getint('Training', 'CfNum')
+    NegSample = config.getint('Training', 'NegSample')
+
 ### Feature File Related:
-def print_train_file(key, feature_types, negative=100):
+def print_train_file(key, feature_types, negative):
     key = key.split('_')
-    if len(key) == 3:
+    if len(key) == 4:
         num = key[0]
         cf_pair = "%s_%s" % (key[1], key[2])
+        gold_num = key[3]
     else:
         sys.stderr.write("key not valid.\n")
         sys.exit()
 
     EVENT_DB = shelve.open(config.get('DB', 'EVENT_DB'), flag='r')
     ev = Event(num, EVENT_DB[num])
-    gold_align = ev.gold
-    feat_dict = ev.get_all_features_dict()
     EVENT_DB.close()
+    if gold_num == 'all':
+        gold_align = ev.gold
+    else:
+        gold_align = ev.gold_sets[int(gold_num)]
+    feat_dict = ev.get_all_features_dict(max_cf_num=CfNum)
     
     print "@boi"
     print "# %s %s" % (num, " ".join(gold_align))
@@ -70,18 +80,18 @@ def print_train_file(key, feature_types, negative=100):
 def print_test_file(num, feature_types, without_impossible, only_gold):
     EVENT_DB = shelve.open(config.get('DB', 'EVENT_DB'), flag='r')
     ev = Event(num, EVENT_DB[num])
-    gold_align = ev.gold
-    feat_dict = ev.get_all_features_dict()
     EVENT_DB.close()
+    feat_dict = ev.get_all_features_dict(max_cf_num=CfNum)
 
     if only_gold:
-        all_align = [gold_align]
+        #all_align = [gold_align]
+        all_align = ev.gold_sets
     else:
         all_align = ALL_ALIGN2
     
     print "@boi"
     #print "# %s" % num
-    print "# %s %s" % (num, " ".join(gold_align))
+    print "# %s %s" % (num, " ".join(ev.gold))
     impossible_align = feat_dict['all']['impossibleAlign']
     for cf_pair in feat_dict.keys():
         if cf_pair == 'all':
@@ -94,7 +104,11 @@ def print_test_file(num, feature_types, without_impossible, only_gold):
             else:
                 class_str = "_".join(alignment)
             ### ??
-            class_str = "-%s_%s_%s" % (num, cf_pair, class_str)
+            if only_gold:
+                gold_index = all_align.index(alignment)
+                class_str = "-%s_%s_%s_%s" % (num, cf_pair, gold_index, class_str)
+            else:
+                class_str = "-%s_%s_%s" % (num, cf_pair, class_str)
             print class_str, get_all_features(feat_dict['all'], feat_dict[cf_pair], alignment, feature_types)
     print "@eoi"
 
@@ -115,6 +129,8 @@ def get_all_features(general_dict, feature_dict, alignment, feature_types):
         feature_strs.append(_get_rival_feature(alignment, feature_dict['context'], 'con'))
     if 'postpred' in feature_types:
         feature_strs.append(_get_postpred_feature(alignment, general_dict['postPred']))
+    if 'verbtype' in feature_types:
+        feature_strs.append(_get_verbtype_feature(alignment, general_dict['verbType']))
     ##
     feature_strs = filter(None, feature_strs)
     return  " ".join(feature_strs)
@@ -139,6 +155,18 @@ def _get_multialign_feature(align):
     for c2 in set([x for x in c2s if c2s.count(x) > 1]):
         multi_feats.append("%s2%s" % (c2, postfix))
     return " ".join(multi_feats)
+
+def _get_verbtype_feature(align, target_list):
+    postfix = "_vtype"
+    verbtype_feats = []
+    c1s = map(lambda x: x.split('-')[0], align)
+    c2s = map(lambda x: x.split('-')[-1], align)
+    seperated_align = {'1' : c1s, '2' : c2s}
+    for case in target_list:
+        case, which = list(case)
+        if case in seperated_align[which]:
+            verbtype_feats.append("%s%s%s" % (case, which, postfix))
+    return " ".join(verbtype_feats)
 
 def _get_cfsim_feature(align, cf_dict):
     postfix = "_cfsim"
@@ -219,14 +247,11 @@ def print_train_task(output_dir, setting_file, ids_cf_file):
         line = line.rstrip()
         if line in ["@boi", "@eoi"]:
             continue
-        if '_' not in line:
-            sys.stderr.write(line)
-            continue
         key = line.split('_')
-        if len(key) < 3:
+        if len(key) < 4:
             sys.stderr.write("not valid key.\n")
             continue
-        key = '_'.join(key[:3])
+        key = '_'.join(key[:4])
         cmd =  "python print_feature_file.py --print_train_feature --num %s --setting_file %s" % (key, setting_file)
         num = key.split('_')[0]
         output_file = "%s/%s.txt" % (output_dir, num)
@@ -261,12 +286,14 @@ if __name__ == "__main__":
         print_train_task(options.output_dir, options.setting_file, options.ids_file)
 
     elif options.print_test_feature:
+        get_config(options.setting_file)
         feature_types = get_feature_type_list(options.setting_file)
         print_test_file(options.num, feature_types, options.without_impossible_align, options.only_gold_align)
 
     elif options.print_train_feature:
+        get_config(options.setting_file)
         feature_types = get_feature_type_list(options.setting_file)
-        print_train_file(options.num, feature_types)
+        print_train_file(options.num, feature_types, negative=NegSample)
     else:
         sys.stderr.write("specify task.\n")
         sys.exit()

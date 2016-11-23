@@ -11,6 +11,7 @@ from itertools import product
 from subprocess import check_output
 #from build_cf_db import *
 from utils import *
+from evaluation import process_gold
 from RetrieveOriginalData import *
 from Original_sentences_analysis import * 
 import ConfigParser
@@ -23,7 +24,7 @@ ORIG_TEXT_DIR = config.get('Original', 'ORIG_TEXT_DIR')
 CF = config.get('CF', 'CF') 
 
 class Event(object):
-    attributes = ['pred1', 'pred2', 'charStr_raw', 'charStr', 'gold', 'impossible_align', 'arg_count', 'context_word', 'cf_ids']
+    attributes = ['pred1', 'pred2', 'charStr_raw', 'charStr', 'gold', 'impossible_align', 'arg_count', 'context_word', 'cf_ids', 'gold_sets']
     def __init__(self, num, event_dict=None, modify=[]):
         """
         Build event attribute from scratch of from existing database (when event dict is given).
@@ -58,6 +59,7 @@ class Event(object):
 
         self._set_charStr()
         self._set_gold()
+        self._set_gold_sets()
         self._set_impossible_align()
         self._set_arg_count()
         self._set_context_word()
@@ -95,12 +97,25 @@ class Event(object):
         The gold alignment stored is processed to remove ', /, p, g2, ...
         """
         if self.num in GOLD_ALIGN.keys():
-            self.gold = process_gold(GOLD_ALIGN[self.num])
-            if self.gold == ['X']:
-                self.gold = []
+            gold_single, gold_multiple = process_gold(GOLD_ALIGN[self.num])
+            gold_all = gold_single.values() + sum(gold_multiple.values(), [])
+            self.gold = list(set(gold_all))
         else:
             self.gold = None
-        print " ".join(self.gold)
+
+    def _set_gold_sets(self):
+        self.gold_sets = []
+        if self.num in GOLD_ALIGN.keys():
+            gold_single, gold_multiple = process_gold(GOLD_ALIGN[self.num])
+            gold_single = gold_single.values()
+            gold_multiple = gold_multiple.values()
+
+            gold_possibility = list(product(*gold_multiple))
+            gold_possibility = map(lambda x: list(set(list(x) + gold_single)), gold_possibility)
+
+            for g in gold_possibility:
+                if g not in self.gold_sets:
+                    self.gold_sets.append(g)
 
     def _set_impossible_align(self):
         """
@@ -191,6 +206,7 @@ class Event(object):
 
     def _set_cf_ids(self):
         CF_DB = shelve.open(config.get('DB', 'CF_DB'), flag='r')
+        given_args = {"1": self.pred1.args, "2": self.pred2.args}
         self.cf_ids = {"1":[], "2":[]}
         for which in ["1", "2"]:
             score_dict = {}
@@ -202,7 +218,7 @@ class Event(object):
                     sys.stderr.write("cannot convert case-frame object.\n")
                     continue
                 cf_id = "%s##%s" % (cf_id, this_cf.get_char_str())
-                score_dict[cf_id] = this_cf.get_score(self.arg_count, which, context_word=self.context_word)
+                score_dict[cf_id] = this_cf.get_score(which, given_args, self.arg_count, context_word=self.context_word)
             score_dict = sorted(score_dict.items(), key=operator.itemgetter(1), reverse=True)
             flag = False
             for cf_id, cf_score in score_dict:
@@ -230,6 +246,7 @@ class Event(object):
         all_features_dict['all'] = {}
         all_features_dict['all']['postPred'] = self.pred2.args.keys()
         all_features_dict['all']['impossibleAlign'] = self.impossible_align
+        all_features_dict['all']['verbType'] = self.get_verbType_features()
 
         for i in range(min(max_cf_num, len(self.cf_ids['1']))):
             for j in range(min(max_cf_num, len(self.cf_ids['2']))):
@@ -239,6 +256,16 @@ class Event(object):
                 cfsim_dict = self.get_cfsim_features(CaseFrame(cf_dict=cf1s[cf1_id]), CaseFrame(cf_dict=cf2s[cf2_id]))
                 all_features_dict["%s_%s" % (i, j)] = {'cfsim': cfsim_dict, 'context': cont_dict}
         return all_features_dict
+
+    def get_verbType_features(self):
+        target_align = []
+        for i, pred in enumerate([self.pred1, self.pred2]):
+            i = i + 1
+            if pred.voice == 'P':
+                target_align.append("g%s" % i)
+            if pred.voice == 'C':
+                target_align.append("w%s" % i)
+        return target_align
 
 
     def get_cfsim_features(self, cf1, cf2):
@@ -282,6 +309,32 @@ class Event(object):
                 context_feature_dict["_-%s" % c2] += align_context_score
 
         return dict(context_feature_dict)
+        """
+        context_feature_dict = defaultdict(int)
+        for c1, c2 in product(CASE_ENG, CASE_ENG):
+            align = "%s-%s" % (c1, c2)
+            P1 = 0.0
+            P2 = 0.0
+            tmp = []
+            for w, count in self.context_word.items():
+                if count < 3:
+                    continue
+                w = w.encode('utf-8')
+                p1 = cf1.get_arg_probability(c1, w)
+                p2 = cf2.get_arg_probability(c2, w)
+                if p1 and p2:
+                    tmp.append(w)
+                    #print align
+                    #print w, count, round(p1, 3), round(p2, 3)
+                    P1 += p1 * count 
+                    P2 += p2 * count 
+            align_context_score = round(min(P1, P2), 3)
+            if align_context_score:
+                #print align, " ".join(tmp), align_context_score
+                context_feature_dict[align] = align_context_score
+        return dict(context_feature_dict)
+        """
+                
 
     def export(self):
         event_dict = {}
@@ -454,22 +507,29 @@ class CaseFrame(object):
         return flag
             
 
-    def get_score(self, event_args, which, context_word={}):
+    def get_score(self, which, given_args, event_args, context_word={}):
+        G = 1
+        E = 0.5
+        C = 0.5
         # modify:
         context_word = {arg.encode('utf-8'): count for arg, count in context_word.iteritems()}
         check_cases = filter(lambda x: which in x, event_args.keys())
+        given_args = given_args[which]
 
         total_similarity = 0
         for case in check_cases:
             if case[0] not in self.args.keys():
             #    return 0
                 continue
-            case_sim = cosine_similarity(event_args[case], self.args[case[0]], strip=True) 
-            # ??
-            if context_word:
-                context_sim = cosine_similarity(context_word, self.args[case[0]], strip=True)
-                case_sim += context_sim
-            total_similarity += case_sim
+            if case[0] in given_args.keys():
+                case_sim_G = cosine_similarity(event_args[case], self.args[case[0]], strip=True)
+                total_similarity += case_sim_G * G
+            else:
+                case_sim_E = cosine_similarity(event_args[case], self.args[case[0]], strip=True) 
+                total_similarity += case_sim_E * E
+                if context_word:
+                    context_sim_C = cosine_similarity(context_word, self.args[case[0]], strip=True)
+                    total_similarity += context_sim_C * C
         return total_similarity 
 
     def get_arg_probability(self, case, arg_list):
@@ -478,8 +538,12 @@ class CaseFrame(object):
         """
         if type(arg_list) == str:
             arg_list = [arg_list]
+        #arg_list = map(disambiguous, arg_list)
+        #arg_list = map(remove_hira, arg_list)
         if case not in self.args.keys():
             return 0
+        #case_args = {disambiguous(a):count for a, count in self.args[case].iteritems()}
+        #case_args = {remove_hira(a):count for a, count in self.args[case].iteritems()}
         case_args = {a:count for a, count in self.args[case].iteritems()}
         case_frequency = float(self.frequencies[case])
         total_prob = 0.0
@@ -646,15 +710,17 @@ if __name__ == "__main__":
     elif options.num != None:
         # debug mode.
         num = options.num
-        ev = Event(options.num)
-        sys.exit()
+        #ev = Event(options.num)
+        #print ev.gold_sets
+        #sys.exit()
 
         EVENT_DB = shelve.open(config.get('DB', 'EVENT_DB'), flag='r')
         ev = Event(num, EVENT_DB[num])
         EVENT_DB.close()
-        print ev.gold
-        sys.exit()
-        print ev.get_all_features_dict()
+        print ev.get_verbType_features()
+        #ev._set_cf_ids()
+        #print ev.gold_sets
+        #print ev.get_all_features_dict()
     else:
         sys.stderr.write("no option specified.\n")
         
