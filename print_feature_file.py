@@ -64,6 +64,7 @@ def print_train_file(key, feature_types, negative):
         class_str = "%s_%s_%s" % (num, cf_pair, class_str)
         print "-%s %s" % (class_str, get_all_features(feat_dict['all'], feat_dict[cf_pair], alignment, feature_types))
 
+    """
     # try
     for neg_cf_pair in feat_dict.keys():
         if neg_cf_pair in [cf_pair, 'all']:
@@ -74,7 +75,7 @@ def print_train_file(key, feature_types, negative):
             class_str = "_".join(gold_align)
         class_str = "%s_%s_%s" % (num, cf_pair, class_str)
         print "-%s %s" % (class_str, get_all_features(feat_dict['all'], feat_dict[neg_cf_pair], gold_align, feature_types))
-
+    """
     print "@eoi"
 
 def print_test_file(num, feature_types, without_impossible, only_gold):
@@ -131,6 +132,11 @@ def get_all_features(general_dict, feature_dict, alignment, feature_types):
         feature_strs.append(_get_postpred_feature(alignment, general_dict['postPred']))
     if 'verbtype' in feature_types:
         feature_strs.append(_get_verbtype_feature(alignment, general_dict['verbType']))
+    if 'support' in feature_types:
+        #feature_strs.append(_get_support_feature(alignment, general_dict['support']))
+        feature_strs.append(_get_rival_feature(alignment, general_dict['support'], 'sup', threshold=10))
+    if 'conflict' in feature_types:
+        feature_strs.append(_get_conflict_feature(alignment, general_dict['conflict']))
     ##
     feature_strs = filter(None, feature_strs)
     return  " ".join(feature_strs)
@@ -139,7 +145,8 @@ def _get_binary_feature(align):
     postfix = "_aligned"
     binary_feats = []
     if align == []:
-        return "%s%s" % ("null", postfix)
+        #return "%s%s" % ("null", postfix)
+        return ""
     for a in align:
         binary_feats.append("%s%s" % (a, postfix))
     return " ".join(binary_feats)
@@ -155,6 +162,29 @@ def _get_multialign_feature(align):
     for c2 in set([x for x in c2s if c2s.count(x) > 1]):
         multi_feats.append("%s2%s" % (c2, postfix))
     return " ".join(multi_feats)
+
+def _get_conflict_feature(align, conf_dict):
+    postfix = "_conf"
+    conf_feats = []
+    for a in align:
+        if a not in conf_dict.keys():
+            continue
+        conf_feats.append("%s%s:%.3f" % (a, postfix, conf_dict[a]))
+
+def _get_support_feature(align, support_dict):
+    postfix = "_sup"
+    sup_feats = []
+    for a in align:
+        if a not in support_dict.keys():
+            continue
+        score = support_dict[a]
+        if score < 10:
+            continue
+        if score > 100:
+            score = 100
+        sup_feats.append("%s%s:%s" % (a, postfix, score))
+    return " ".join(sup_feats)
+
 
 def _get_verbtype_feature(align, target_list):
     postfix = "_vtype"
@@ -206,7 +236,7 @@ def _get_context_feature(align, con_dict):
 
     return " ".join(con_feats)
 
-def _get_rival_feature(align, feat_dict, postfix):
+def _get_rival_feature(align, feat_dict, postfix, threshold=0.005):
     postfix = "_%srival" % (postfix)
     rival_feats = []
     for a in align:
@@ -214,12 +244,33 @@ def _get_rival_feature(align, feat_dict, postfix):
         if a not in feat_dict.keys():
             continue
         align_score = feat_dict[a]
+        if align_score <= threshold:
+            continue
+        align_score = float(align_score)
         ratio1 = align_score / feat_dict["%s-_" % c1]
         ratio2 = align_score / feat_dict["_-%s" % c2]
         # MODIFY
-        if align_score > 0.005:
+        if align_score > threshold:
             rival_feats.append("%s%s:%.3f" % (a, postfix, ratio1 * ratio2))
     return " ".join(rival_feats)
+    """
+    for a in feat_dict.keys():
+        if '_' in a:
+            continue
+        align_score = feat_dict[a]
+        if align_score <= threshold:
+            continue
+        align_score = float(align_score)
+        #
+        c1, c2 = a.split('-') 
+        ratio1 = align_score / feat_dict["%s-_" % c1]
+        ratio2 = align_score / feat_dict["_-%s" % c2]
+        if a in align:
+            rival_feats.append("%s%s:%.3f" % (a, postfix, ratio1 * ratio2))
+        else:
+            rival_feats.append("%s%s:-%.3f" % (a, postfix, ratio1 * ratio2))
+    return " ".join(rival_feats)
+    """
 
 
 def _get_postpred_feature(align, post_list):

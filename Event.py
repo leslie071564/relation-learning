@@ -24,7 +24,9 @@ ORIG_TEXT_DIR = config.get('Original', 'ORIG_TEXT_DIR')
 CF = config.get('CF', 'CF') 
 
 class Event(object):
-    attributes = ['pred1', 'pred2', 'charStr_raw', 'charStr', 'gold', 'impossible_align', 'arg_count', 'context_word', 'cf_ids', 'gold_sets']
+    attributes = ['pred1', 'pred2',\
+                 'charStr_raw', 'charStr', 'gold', 'gold_sets', 'impossible_align', \
+                 'arg_count', 'conflict_count', 'context_word', 'context_counts', 'cf_ids']
     def __init__(self, num, event_dict=None, modify=[]):
         """
         Build event attribute from scratch of from existing database (when event dict is given).
@@ -36,8 +38,11 @@ class Event(object):
             self._set_all()
         else:
             # build instance from existing dictionary.
-            self.pred1 = Predicate("", event_dict['pred1'])
-            self.pred2 = Predicate("", event_dict['pred2'])
+            if 'pred1' in modify or 'pred2' in modify:
+                self._set_preds()
+            else:
+                self.pred1 = Predicate("", event_dict['pred1'])
+                self.pred2 = Predicate("", event_dict['pred2'])
             for attr in self.attributes[2:]:
                 if attr in modify:
                     exec("self._set_%s()" % attr)
@@ -63,7 +68,19 @@ class Event(object):
         self._set_impossible_align()
         self._set_arg_count()
         self._set_context_word()
+        self._set_context_counts()
         self._set_cf_ids()
+
+    def _set_preds(self):
+        """
+        Set Predicates.
+        """
+        pa1_str, pa2_str = self._retrieve_raw_event()
+        self.pred1 = Predicate(pa1_str)
+        self.pred2 = Predicate(pa2_str)
+        verb_key = "%s-%s" % (self.pred1.verb_raw, self.pred2.verb_raw)
+        self.pred1._set_arguments(verb_key)
+        self.pred2._set_arguments(verb_key)
 
     def _retrieve_raw_event(self):
         """
@@ -104,6 +121,10 @@ class Event(object):
             self.gold = None
 
     def _set_gold_sets(self):
+        """
+        Get possible gold aligns for training.
+        ex: "g/n-g/n" --> ['g-g', 'g-n', 'n-g', 'n-n']
+        """
         self.gold_sets = []
         if self.num in GOLD_ALIGN.keys():
             gold_single, gold_multiple = process_gold(GOLD_ALIGN[self.num])
@@ -131,6 +152,9 @@ class Event(object):
                 continue
             self.impossible_align.append("%s-%s" % (case1, case2))
 
+    def _set_conflict_count(self):
+        self._set_arg_count()
+
     def _set_arg_count(self, remove_redundant=False, print_sent=""):
         """
         Retrieve original sentences and update set the counts of arguments in each case in the original sentences.
@@ -149,6 +173,7 @@ class Event(object):
         sys.stderr.write("key strings:\n")
         # get original sentences. 
         self.arg_count = defaultdict(lambda: defaultdict(int))
+        self.conflict_count = defaultdict(int)
         keep_args1 = []
         keep_args2 = []
         for key in all_keys:
@@ -167,10 +192,12 @@ class Event(object):
                 if print_sent:
                     PRINT_TO_FILE.write(sent+'\n')
                 self._update_arg_count(parsed_sent)
+                self._update_conflict_count(parsed_sent)
         self.pred1.update_args(keep_args1)
         self.pred2.update_args(keep_args2)
         # check for repeated sentences.
         self.arg_count = dict(self.arg_count)
+        self.conflict_count = dict(self.conflict_count)
         if remove_redundant:
             self.orig_sentences = remove_redundant_sentence(self.orig_sentences)
 
@@ -187,6 +214,22 @@ class Event(object):
                 #arg = "+".join(map(lambda x: x.split('/')[0], arg.split('+')))
                 self.arg_count["%s%s" % (KATA_ENG[case.decode('utf-8')], pred_index+1)][arg] += 1
 
+    def _update_conflict_count(self, parsed_sent):
+        PA1, PA2 = parsed_sent.split(" - ")
+        PA1 = PA1.split(" ")
+        PA2 = PA2.split(" ")
+        PA1 = dict(zip(PA1[1::2], PA1[0::2]))
+        PA2 = dict(zip(PA2[1::2], PA2[0::2]))
+        for c1, c2 in product(PA1.keys(), PA2.keys()):
+            if c1 not in KATA_ENG.keys() or c2 not in KATA_ENG.keys():
+                continue
+            if PA1[c1] != PA2[c2]:
+                c1 = KATA_ENG[c1.decode('utf-8')]
+                c2 = KATA_ENG[c2.decode('utf-8')]
+                self.conflict_count["%s-%s" % (c1, c2)] += 1
+        self.conflict_count["total"] += 1
+
+
     def print_orig_sentences(self, write_to_file):
         self._set_arg_count(print_sent=write_to_file)
 
@@ -195,14 +238,50 @@ class Event(object):
         seperate_list = map(lambda x: x.split('+')[0], seperate_list)[::-1]
         raw_context_word = get_context_words(self.num, seperate_list, debug=False)
 
-        givens = sum(self.pred1.args.values(), []) + sum(self.pred2.args.values(), [])
-        skip = [u"こと/こと", u"[数詞]"] + givens + seperate_list
+        #givens = sum(self.pred1.args.values(), []) + sum(self.pred2.args.values(), [])
+        givens = []
+        skip = [u"こと/こと", u"[数詞]", u"時/とき", u"場合/ばあい", u"様/よう", u"上/うえ", u"中/なか", u"後/あと", u"為/ため"]
+        skip = skip + givens + seperate_list
         save_context = raw_context_word['f'] + raw_context_word['m']
         self.context_word = {k : v for k, v in save_context.items() if k not in skip}
-        #print "<All context words>"
-        #for place, print_place in [('f', 'front'), ('m', 'middle'), ('r', 'after')]:
-            #print print_place, ":"
-            #print " ".join(filter(lambda y: raw_context_word[place][y] > 3, [x[0] for x in raw_context_word[place].items()]))
+        #
+        #self._set_context_counts()
+
+    def _set_context_counts(self):
+        event_to_count_keymap = "/windroot/huang/EventCounts_20161030/Event-count/event_count.cdb.keymap"
+        ev_count_cdb = CDB_Reader(event_to_count_keymap)
+        self.context_counts = {}
+        for word, freq in self.context_word.items():
+            if freq <= 2:
+                continue
+            word_dict = {}
+            for case in CASE_KATA:
+                eng_case = KATA_ENG[case]
+                #
+                key1 = ["%s-%s-%s" % (word, case, self.pred1.verb_rep)]
+                if self.pred1.verb_amb:
+                    key1 += map(lambda x: "%s-%s-%s" % (word, case, x), self.pred1.verb_amb)
+                ev_count1 = 0
+                for k in key1:
+                    count = ev_count_cdb.get(k)
+                    if count:
+                        ev_count1 += int(count)
+                if ev_count1 != 0:
+                    word_dict["%s%s" % (eng_case, 1)] = ev_count1
+                #
+                key2 = ["%s-%s-%s" % (word, case, self.pred2.verb_rep)]
+                if self.pred2.verb_amb:
+                    key2 += map(lambda x: "%s-%s-%s" % (word, case, x), self.pred2.verb_amb)
+                ev_count2 = 0
+                for k in key2:
+                    count = ev_count_cdb.get(k)
+                    if count:
+                        ev_count2 += int(count)
+                if ev_count2 != 0:
+                    word_dict["%s%s" % (eng_case, 2)] = ev_count2
+            if word_dict:
+                self.context_counts[word] = word_dict
+
 
     def _set_cf_ids(self):
         CF_DB = shelve.open(config.get('DB', 'CF_DB'), flag='r')
@@ -247,6 +326,8 @@ class Event(object):
         all_features_dict['all']['postPred'] = self.pred2.args.keys()
         all_features_dict['all']['impossibleAlign'] = self.impossible_align
         all_features_dict['all']['verbType'] = self.get_verbType_features()
+        all_features_dict['all']['support'] = self.get_support_features()
+        all_features_dict['all']['conflict'] = self.get_conflict_features()
 
         for i in range(min(max_cf_num, len(self.cf_ids['1']))):
             for j in range(min(max_cf_num, len(self.cf_ids['2']))):
@@ -256,6 +337,47 @@ class Event(object):
                 cfsim_dict = self.get_cfsim_features(CaseFrame(cf_dict=cf1s[cf1_id]), CaseFrame(cf_dict=cf2s[cf2_id]))
                 all_features_dict["%s_%s" % (i, j)] = {'cfsim': cfsim_dict, 'context': cont_dict}
         return all_features_dict
+
+    def get_conflict_features(self):
+        conflict_features = {}
+        if self.conflict_count == {}:
+            return conflict_features
+        total = float(self.conflict_count["total"])
+        for c1, c2 in product(CASE_ENG, CASE_ENG):
+            align = "%s-%s" % (c1, c2)
+            if align not in self.conflict_count.keys():
+                continue
+            conflict_features[align] = round(self.conflict_count[align] / total, 3)
+        return conflict_features
+
+    def get_support_features(self):
+        support_features = defaultdict(int)
+        escape = map(lambda x: "%s1" % x, self.pred1.args.keys()) + map(lambda x: "%s2" % x, self.pred2.args.keys())
+        givens = sum(self.pred1.args.values(), []) + sum(self.pred2.args.values(), [])
+        for word, word_dict in self.context_counts.items():
+            support_align = {'1' : None, '2' : None}
+            for case in sorted(word_dict, key=word_dict.get, reverse=True):
+                if case in escape and word not in givens:
+                    continue
+                case, which = list(case)
+                if support_align[which]:
+                    continue
+                else:
+                    support_align[which] = (case, word_dict[case+which])
+            #
+            if None not in support_align.values():
+                support_score = min(support_align['1'][1], support_align['2'][1])
+                support_align = "%s-%s" % (support_align['1'][0], support_align['2'][0])
+                if support_align in self.impossible_align:
+                    continue
+                support_features[support_align] += support_score
+                #sys.stderr.write("%s %s %s\n" % (word, support_align, support_score))
+                #
+                c1, c2 = support_align.split('-')
+                support_features["%s-_" % c1] += support_score
+                support_features["_-%s" % c2] += support_score
+        return dict(support_features)
+
 
     def get_verbType_features(self):
         target_align = []
@@ -292,27 +414,6 @@ class Event(object):
         context_feature_dict = defaultdict(int)
         for c1, c2 in product(CASE_ENG, CASE_ENG):
             align = "%s-%s" % (c1, c2)
-            align_context_score = 0.0
-            for w, count in self.context_word.items():
-                ###
-                if count < 3:
-                    continue
-                ###
-                w = w.encode('utf-8')
-                p1 = cf1.get_arg_probability(c1, w)
-                p2 = cf2.get_arg_probability(c2, w)
-                align_context_score += min(p1, p2) * count
-            align_context_score = round(align_context_score, 3)
-            if align_context_score:
-                context_feature_dict[align] = align_context_score
-                context_feature_dict["%s-_" % c1] += align_context_score
-                context_feature_dict["_-%s" % c2] += align_context_score
-
-        return dict(context_feature_dict)
-        """
-        context_feature_dict = defaultdict(int)
-        for c1, c2 in product(CASE_ENG, CASE_ENG):
-            align = "%s-%s" % (c1, c2)
             P1 = 0.0
             P2 = 0.0
             tmp = []
@@ -332,8 +433,9 @@ class Event(object):
             if align_context_score:
                 #print align, " ".join(tmp), align_context_score
                 context_feature_dict[align] = align_context_score
+                context_feature_dict["%s-_" % c1] += align_context_score
+                context_feature_dict["_-%s" % c2] += align_context_score
         return dict(context_feature_dict)
-        """
                 
 
     def export(self):
@@ -346,7 +448,7 @@ class Event(object):
 ### End: Event Class
     
 class Predicate(object):
-    attributes = ['verb_stem', 'verb_rep', 'args', 'negation', 'voice']
+    attributes = ['verb_stem', 'verb_rep', 'verb_amb', 'args', 'negation', 'voice']
     def __init__(self, pa_str, pred_dict=None):
         if pred_dict == None:
             self.verb_raw = pa_str.split(":")[0]
@@ -360,6 +462,16 @@ class Predicate(object):
         regex = re.compile(verb_pattern)
         self.negation, self.voice, self.verb_stem = regex.search(verb_str).groups()
         self.verb_rep = get_verb_form(self.verb_stem, self.voice)
+        verb_amb = get_amb_key(self.verb_rep)
+        if self.verb_rep != verb_amb:
+            self.verb_amb = verb_amb
+        else:
+            self.verb_amb = None
+        #MODIFY
+        if len(self.verb_amb.split('?')) == 2:
+            self.verb_amb = [self.verb_amb, '?'.join(self.verb_amb.split('?')[::-1])]
+        else:
+            self.verb_amb = [self.verb_amb]
 
     def _set_arguments(self, verb_key):
         self.args = {}
@@ -424,6 +536,7 @@ class Predicate(object):
         for attr in self.attributes:
             predicate_dict[attr] = getattr(self, attr)
         return predicate_dict
+
 ### End: Predicate Class
 class CaseFrame(object):
     def __init__(self, xml="", cf_dict={}):
@@ -717,7 +830,16 @@ if __name__ == "__main__":
         EVENT_DB = shelve.open(config.get('DB', 'EVENT_DB'), flag='r')
         ev = Event(num, EVENT_DB[num])
         EVENT_DB.close()
-        print ev.get_verbType_features()
+        print ev.get_conflict_features()
+        sys.exit()
+        for case, d in ev.arg_count.items():
+            print case
+            print " ".join(d.keys())
+        sys.exit()
+        for k, d in ev.context_counts.items():
+            print k
+            print d
+        #print ev.get_verbType_features()
         #ev._set_cf_ids()
         #print ev.gold_sets
         #print ev.get_all_features_dict()
