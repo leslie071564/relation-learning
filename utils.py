@@ -35,6 +35,9 @@ for i in [1,2,3,4]:
                  ALL_ALIGN2.append(align)
 ALL_ALIGN2.append([])
 ####
+if __name__ == "__main__":
+    print len(ALL_ALIGN)
+    print len(ALL_ALIGN2)
 
 
 def get_verb_form(vStr, voice):
@@ -64,6 +67,13 @@ def remove_hira(rep_str, split_char=['+'], keep_plus=True):
         return '+'.join(readable_strs)
     else:
         return "".join(readable_strs)
+
+def disambiguous(rep_str):
+    # ex:
+    if "?" in rep_str:
+        return rep_str.split('?')[0]
+    else:
+        return rep_str
 
 import sys
 query_dict = {u"う":u"わ", u"く":u"か", u"す":u"さ",u"る":u"ら",u"む":u"ま", u"ぶ":u"ば"}
@@ -124,7 +134,7 @@ def vector_norm(v):
         n2 += value ** 2
     return sqrt(n2)
 
-def cosine_similarity(v1, v2, get_score=False, strip=False):
+def cosine_similarity(v1, v2, get_score=False, strip=False, restrict_set=[]):
     """
     calculate cosine similarity of two dictionary-vector.
     """
@@ -140,8 +150,12 @@ def cosine_similarity(v1, v2, get_score=False, strip=False):
     #calculate inner product
     inner = 0
     sharedArg = set(v1.keys()).intersection(set(v2.keys()))
+
     for w in sharedArg:
-        inner += v1[w]*v2[w]
+        if restrict_set == []:
+            inner += v1[w]*v2[w]
+        elif w in restrict_set:
+            inner += v1[w]*v2[w]
 
     if get_score == True:
         return (inner * (norm_v1 + norm_v2)) / denom

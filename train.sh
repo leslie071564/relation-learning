@@ -16,9 +16,8 @@ ids_cf=$cv_dir/ids_cf.txt
 
 task_file=./print.task
 python $print_feature_script --print_test_task --output_dir $cv_choose_dir --ids_file $train_ids --only_gold_align > $task_file
-#python $print_feature_script --print_test_task --output_dir $cv_choose_dir --ids_file $train_ids --without_impossible_align > $task_file
 echo extracting test feature file:
-gxpc js -a work_file=print.task -a cpu_factor=0.75
+gxpc js -a work_file=print.task -a cpu_factor=0.5
 echo finished.
 rm -f $task_file
 
@@ -26,7 +25,7 @@ rm -f $task_file
 python $train_script --initialize --train_ids $train_ids > $ids_cf
 python $print_feature_script --print_train_task --output_dir $cv_train_dir --ids_file $ids_cf > $task_file 
 echo extracting train feature file:
-gxpc js -a work_file=print.task -a cpu_factor=0.75
+gxpc js -a work_file=print.task -a cpu_factor=0.5
 echo finished.
 rm -f $task_file
 echo learn model:
@@ -35,14 +34,14 @@ echo finished.
 
 
 ### itierations
-END=20
+END=5
 for i in $(seq 1 $END)
 do
     echo "##### iteration $i #####"
     cat $cv_choose_dir/* | classias-tag -m $model_file > $ids_cf
     echo extracting train feature file:
     python $print_feature_script --print_train_task --output_dir $cv_train_dir --ids_file $ids_cf > $task_file 
-    gxpc js -a work_file=print.task -a cpu_factor=0.75
+    gxpc js -a work_file=print.task -a cpu_factor=0.5
     echo finished.
     echo learn model:
     classias-train -tc -a lbfgs.logistic -m $model_file $cv_train_dir/*
@@ -52,7 +51,7 @@ done
 ### evaluation
 python $print_feature_script --print_test_task --output_dir $cv_test_dir --ids_file $test_ids --without_impossible_align > $task_file
 echo extracting test feature file:
-gxpc js -a work_file=print.task -a cpu_factor=0.75
+gxpc js -a work_file=print.task -a cpu_factor=0.5
 echo finished.
 rm -f $task_file
 

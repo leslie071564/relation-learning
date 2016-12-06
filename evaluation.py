@@ -61,10 +61,10 @@ def process_id(ID, output, debug=False, get_set=False):
     if debug:
         print "#", ID
         print "gold raw", " ".join(gold_raw)
-        print "gold single", " ".join(gold_single), len(gold_single)
-        print "gold multiple", " ".join(gold_multiple), len(gold_multiple)
+        print "gold single", " ".join(gold_single.values()), len(gold_single.values())
+        print "gold multiple", gold_multiple.values(), len(gold_multiple.values())
         print "output", " ".join(output), len(output)
-        print "correct", " ".join(correct), len(correct)
+        #print "correct", " ".join(correct), len(correct)
     # debug 
     if get_set:
         return {'gold' : gold_single.keys() + gold_multiple.keys(), 'correct' : correct}
@@ -81,7 +81,9 @@ def process_file(result_file, debug=False):
         line = line.rstrip().split("_")
         ID, cf1, cf2 = line[:3]
         output = line[3:]
-        id_counts = process_id(ID, output)
+        id_counts = process_id(ID, output, debug)
+        if debug:
+            print id_counts['correct']
 
         GOLD += id_counts['gold']
         OUTPUT += id_counts['output']

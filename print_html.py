@@ -5,6 +5,7 @@ sys.setdefaultencoding('utf-8')
 import shelve
 import os.path
 import argparse
+import urllib
 import jinja2
 from Event import Event
 from utils import remove_hira
@@ -12,12 +13,12 @@ from evaluation import *
 import ConfigParser
 config = ConfigParser.RawConfigParser()
 config.read('./data_location.ini')
-#EVENT_DB = shelve.open(config.get('DB', 'EVENT_DB'), flag='r')
 IDS_FILE = config.get('Raw', 'IDS')
 HTML_DIR = config.get('HTML', 'HTML_ROOT')
 EV_PAGE = config.get('HTML', 'EV_PAGE_TEMPLATE')
 CF_PAGE = config.get('HTML', 'CF_TEMPATE')
 OVERVIEW_PAGE = config.get('HTML', 'OVERVIEW_TEMPLATE')
+MAX_CF_NUM = 10
 
 ### cf files related.
 def _print_cf_file(ID):
@@ -28,16 +29,19 @@ def _print_cf_file(ID):
     EVENT_DB = shelve.open(config.get('DB', 'EVENT_DB'), flag='r')
     ev = Event(ID, EVENT_DB[ID])
     EVENT_DB.close()
-
-    for pred_num in ['1', '2']:
+    
+    for which, pred in enumerate([ev.pred1, ev.pred2]):
         template_vars = {}
-        for rank, cf in enumerate(ev.cf_ids[pred_num]):
+        template_vars["url_base"] = "http://lotus.kuee.kyoto-u.ac.jp/ycf/2016-02-05/?text="
+        for rank, cf in enumerate(pred.cfs):
             cf_id, cf_str, cf_sim = cf.split("##")
             cf_str = "%s %s" % (cf_str, cf_id.split(':')[0])
+            rank += 1
             template_vars["cf%s_id" % rank] = cf_id
             template_vars["cf%s_str" % rank] = cf_str
             template_vars["cf%s_sim" % rank] = cf_sim
-        output_file = "%s/cf_candidate/%s_%s.html" % (HTML_DIR, ID, pred_num)
+            template_vars["cf%s_url" % rank] = get_url(cf_id) 
+        output_file = "%s/cf_candidate/%s_%s.html" % (HTML_DIR, ID, which + 1)
         F = open(output_file, 'w')
         F.write(cf_template.render(template_vars))
 
@@ -45,7 +49,10 @@ def print_cf_file():
     for ID in open(IDS_FILE):
         ID = ID.rstrip()
         _print_cf_file(ID)
-        sys.stder.write("%s done\n" % ID)
+        sys.stderr.write("%s done\n" % ID)
+
+def get_url(id_str):
+    return urllib.quote_plus(id_str.encode('utf-8'))
 
 def get_colored_align(gold, output, correct):
     if gold == []:
@@ -120,10 +127,11 @@ def print_ev(postfix, ID, cf_num1, cf_num2, gold, output):
     template_vars['gold'] = gold
     template_vars['output'] = output
     template_vars['ID'] = ID
+    template_vars['orig_url'] = "http://lotus.kuee.kyoto-u.ac.jp/~huang/analysis_html/original_sentence/%s.html" % ID
     # case frame related.
-    cf1 = ev.cf_ids['1'][int(cf_num1)]
+    cf1 = ev.pred1.cfs[int(cf_num1)]
     cf_id1, cf_str1, cfsim_1 = cf1.split("##") 
-    cf2 = ev.cf_ids['2'][int(cf_num2)]
+    cf2 = ev.pred2.cfs[int(cf_num2)]
     cf_id2, cf_str2, cfsim_2 = cf2.split("##")
     # TEMP.
     cf_str1 = "%s %s" % (cf_str1, cf_id1.split(':')[0])
@@ -133,12 +141,23 @@ def print_ev(postfix, ID, cf_num1, cf_num2, gold, output):
     template_vars["cf2_str"] = "%s:%s" % (cf_id2, cf_str2)
     template_vars["cf1_sim"] = cfsim_1
     template_vars["cf2_sim"] = cfsim_2
+    template_vars["url_base"] = "http://lotus.kuee.kyoto-u.ac.jp/ycf/2016-02-05/?text="
+    template_vars['cf1_url'] = get_url(cf_id1)
+    template_vars['cf2_url'] = get_url(cf_id2)
     # chart
     template_vars["verb_1"] = remove_hira(ev.pred1.verb_rep)
     template_vars["verb_2"] = remove_hira(ev.pred2.verb_rep)
-    feat_dict = ev.get_all_features_dict()
+    feat_dict = ev.get_all_features_dict(max_cf_num=MAX_CF_NUM)
+    # cf-related features.
     cf_feat_dict = feat_dict["%s_%s" % (cf_num1, cf_num2)]
     for feat_type in ['cfsim', 'context']:
+        for k, v in cf_feat_dict[feat_type].items():
+            if '_' in k:
+                continue
+            template_vars["%s_%s" % (k.replace('-',''), feat_type)] = v
+    # general features.
+    cf_feat_dict = feat_dict['all']
+    for feat_type in ['support', 'conflict']:
         for k, v in cf_feat_dict[feat_type].items():
             if '_' in k:
                 continue
@@ -157,6 +176,8 @@ if __name__ == "__main__":
     parser.add_argument("--print_overview", action="store_true", default=False, dest="print_overview")
     parser.add_argument("--print_ev", action="store_true", default=False, dest="print_ev")
     options = parser.parse_args() 
+    if not options.result_file:
+        options.result_file = "/zinnia/huang/EventKnowledge/align_learn/%s/result/all_results.txt" % (options.postfix)
     if options.print_overview:
         if not options.postfix:
             sys.stderr.write("postfix not specified.")

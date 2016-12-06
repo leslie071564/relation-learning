@@ -64,18 +64,28 @@ def print_train_file(key, feature_types, negative):
         class_str = "%s_%s_%s" % (num, cf_pair, class_str)
         print "-%s %s" % (class_str, get_all_features(feat_dict['all'], feat_dict[cf_pair], alignment, feature_types))
 
+    # negative sample from other cf-pairs.
     """
-    # try
+    #cf_num = len(feat_dict.keys()) - 1
+    #negtive = negative / cf_num
     for neg_cf_pair in feat_dict.keys():
         if neg_cf_pair in [cf_pair, 'all']:
             continue
-        if gold_align == []:
-            class_str = "null"
-        else:
-            class_str = "_".join(gold_align)
-        class_str = "%s_%s_%s" % (num, cf_pair, class_str)
-        print "-%s %s" % (class_str, get_all_features(feat_dict['all'], feat_dict[neg_cf_pair], gold_align, feature_types))
+        ###TEST: remove cf without w-case.
+        if True in feat_dict[neg_cf_pair]['penalty_cfs'].values():
+            continue
+        ###TEST
+        for alignment in random.sample(ALL_ALIGN2, negative):
+            if alignment == gold_align:
+                continue
+            if alignment == []:
+                class_str = "null"
+            else:
+                class_str = "_".join(alignment)
+            class_str = "%s_%s_%s" % (num, neg_cf_pair, class_str)
+            print "-%s %s" % (class_str, get_all_features(feat_dict['all'], feat_dict[neg_cf_pair], alignment, feature_types))
     """
+
     print "@eoi"
 
 def print_test_file(num, feature_types, without_impossible, only_gold):
@@ -85,7 +95,6 @@ def print_test_file(num, feature_types, without_impossible, only_gold):
     feat_dict = ev.get_all_features_dict(max_cf_num=CfNum)
 
     if only_gold:
-        #all_align = [gold_align]
         all_align = ev.gold_sets
     else:
         all_align = ALL_ALIGN2
@@ -97,6 +106,10 @@ def print_test_file(num, feature_types, without_impossible, only_gold):
     for cf_pair in feat_dict.keys():
         if cf_pair == 'all':
             continue
+        ###TEST: remove cf without w-case.
+        if True in feat_dict[cf_pair]['penalty_cfs'].values():
+            continue
+        ###TEST
         for alignment in all_align:
             if without_impossible and (set(alignment) & set(impossible_align)):
                 continue
@@ -133,10 +146,15 @@ def get_all_features(general_dict, feature_dict, alignment, feature_types):
     if 'verbtype' in feature_types:
         feature_strs.append(_get_verbtype_feature(alignment, general_dict['verbType']))
     if 'support' in feature_types:
-        #feature_strs.append(_get_support_feature(alignment, general_dict['support']))
+        feature_strs.append(_get_support_feature(alignment, general_dict['support'], feature_dict['cfsim']))
+    if 'supportrival' in feature_types:
         feature_strs.append(_get_rival_feature(alignment, general_dict['support'], 'sup', threshold=10))
     if 'conflict' in feature_types:
         feature_strs.append(_get_conflict_feature(alignment, general_dict['conflict']))
+    if 'supxcf' in feature_types:
+        feature_strs.append(_get_combined_feature(alignment, general_dict['support'], feature_dict['cfsim'], postfix='_supxcf'))
+    if 'supxcon' in feature_types:
+        feature_strs.append(_get_combined_feature(alignment, general_dict['support'], feature_dict['context'], postfix='_supxcon'))
     ##
     feature_strs = filter(None, feature_strs)
     return  " ".join(feature_strs)
@@ -170,20 +188,43 @@ def _get_conflict_feature(align, conf_dict):
         if a not in conf_dict.keys():
             continue
         conf_feats.append("%s%s:%.3f" % (a, postfix, conf_dict[a]))
+    return " ".join(conf_feats)
 
-def _get_support_feature(align, support_dict):
+def _get_support_feature(align, support_dict, cfsim_dict):
     postfix = "_sup"
     sup_feats = []
+    if '_max_' not in support_dict.keys():
+        return ""
+    else:
+        max_score = float(support_dict['_max_'])
+
     for a in align:
         if a not in support_dict.keys():
             continue
-        score = support_dict[a]
-        if score < 10:
+        if a not in cfsim_dict.keys():
             continue
-        if score > 100:
-            score = 100
+        score = support_dict[a] * cfsim_dict[a]
+        if score < 3:
+            continue
+        score = score / max_score
         sup_feats.append("%s%s:%s" % (a, postfix, score))
     return " ".join(sup_feats)
+
+def _get_combined_feature(align, feat_dict1, feat_dict2, postfix="_comb"):
+    comb_feats = []
+    if '_max_' not in feat_dict1.keys() or '_max_' not in feat_dict2.keys():
+        return ""
+    else:
+        max_score = float(feat_dict1['_max_']) * feat_dict2['_max_']
+
+    for a in align:
+        if a not in feat_dict1.keys():
+            continue
+        if a not in feat_dict2.keys():
+            continue
+        score = feat_dict1[a] * feat_dict2[a] / max_score
+        comb_feats.append("%s%s:%.3f" % (a, postfix, score))
+    return " ".join(comb_feats)
 
 
 def _get_verbtype_feature(align, target_list):

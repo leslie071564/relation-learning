@@ -16,12 +16,14 @@ IDS=$root_dir/ids.txt
 shuf $rawIDS > $IDS 
 total_instance=$(cat $IDS | wc -l )
 echo "number of instances: $total_instance"
-fold_instance=$(($total_instance / 10 + 1))
+#fold_instance=$(($total_instance / 10 + 1))
+fold_instance=$(($total_instance / 5 + 1))
 split -dl $fold_instance -a 1 $IDS $root_dir/ids_
 
 ###
 train_script=./train.py
-for i in $(seq 0 9)
+#for i in $(seq 0 9)
+for i in $(seq 0 4)
 do
     cv_dir=$root_dir/$i
     test_ids=$cv_dir/test_ids.txt
@@ -44,4 +46,6 @@ done
 all_result_file=$result_dir/all_results.txt
 cat $result_dir/* > $all_result_file
 evaluation_script=./evaluation.py
-python $evaluation_script -f $all_result_file
+evaluation_result=$root_dir/evaluation.txt
+python $evaluation_script -f $all_result_file > $evaluation_result
+cat $evaluation_result

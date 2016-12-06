@@ -112,7 +112,9 @@ def get_NP_list(result, seperate):
             continue
 
     for place in ['r', 'm', 'f']:
-        NP_list[place] = map(get_noun, NP_list[place])
+        noun_list = map(get_noun, NP_list[place])
+        noun_list = map(lambda x: x.encode('utf-8'), noun_list)
+        NP_list[place] = noun_list
     return NP_list
 
 def print_processed_task():
